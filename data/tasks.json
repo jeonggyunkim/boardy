@@ -1,0 +1,23 @@
+{
+  "_comment": "PLACEHOLDER task bank (see docs/PLAN.md) — not the real 96 Deep Sea Crew task cards. Templates are instantiated at mission setup: 'card' params like 'ANY_HIGH' get resolved to a concrete Card by the mission builder. Replace this file with the real card data once available; engine code does not need to change.",
+  "templates": [
+    {"kind": "win_card", "difficulty": 1, "params": {"card": "RANDOM_LOW"}},
+    {"kind": "win_card", "difficulty": 2, "params": {"card": "RANDOM_MID"}},
+    {"kind": "win_card", "difficulty": 3, "params": {"card": "RANDOM_HIGH"}},
+    {"kind": "win_card", "difficulty": 3, "params": {"card": "SUBMARINE_4"}},
+    {"kind": "win_trick_number", "difficulty": 2, "params": {"n": 1}},
+    {"kind": "win_trick_number", "difficulty": 3, "params": {"n": "LAST"}},
+    {"kind": "win_exact_count", "difficulty": 2, "params": {"n": 1}},
+    {"kind": "win_exact_count", "difficulty": 3, "params": {"n": 2}},
+    {"kind": "win_exact_count", "difficulty": 4, "params": {"n": 3}},
+    {"kind": "win_at_least", "difficulty": 2, "params": {"n": 2}},
+    {"kind": "win_at_least", "difficulty": 3, "params": {"n": 3}},
+    {"kind": "win_no_tricks", "difficulty": 3, "params": {}},
+    {"kind": "never_win_color", "difficulty": 2, "params": {"suit": "yellow"}},
+    {"kind": "never_win_color", "difficulty": 2, "params": {"suit": "pink"}},
+    {"kind": "never_win_color", "difficulty": 2, "params": {"suit": "green"}},
+    {"kind": "never_win_color", "difficulty": 2, "params": {"suit": "blue"}},
+    {"kind": "win_first_trick", "difficulty": 2, "params": {}},
+    {"kind": "win_last_trick", "difficulty": 2, "params": {}}
+  ]
+}

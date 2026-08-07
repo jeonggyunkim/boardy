@@ -1,0 +1,35 @@
+from deepsea.cards import Card, Suit
+from deepsea.tasks import Task, TaskKind, missions_completed
+
+
+def test_win_card_success():
+    t = Task(id="t1", owner=0, kind=TaskKind.WIN_CARD, params={"card": "B7"})
+    t.check_after_trick(1, {0: Card(Suit.BLUE, 7), 1: Card(Suit.BLUE, 3)}, winner=0,
+                         wins_per_player={0: 1}, is_final_trick=False)
+    assert t.resolved and t.success
+
+
+def test_win_card_wrong_winner_fails():
+    t = Task(id="t1", owner=1, kind=TaskKind.WIN_CARD, params={"card": "B7"})
+    t.check_after_trick(1, {0: Card(Suit.BLUE, 7), 1: Card(Suit.BLUE, 3)}, winner=0,
+                         wins_per_player={0: 1}, is_final_trick=False)
+    assert t.resolved and not t.success
+
+
+def test_never_win_color_fails_immediately():
+    t = Task(id="t1", owner=0, kind=TaskKind.NEVER_WIN_COLOR, params={"suit": "blue"})
+    t.check_after_trick(1, {0: Card(Suit.BLUE, 7), 1: Card(Suit.GREEN, 3)}, winner=0,
+                         wins_per_player={0: 1}, is_final_trick=False)
+    assert t.resolved and not t.success
+
+
+def test_missions_completed_none_while_pending():
+    t1 = Task(id="t1", owner=0, kind=TaskKind.WIN_NO_TRICKS, params={})
+    assert missions_completed([t1]) is None
+
+
+def test_missions_completed_false_on_any_failure():
+    t1 = Task(id="t1", owner=0, kind=TaskKind.WIN_CARD, params={"card": "B7"})
+    t1.resolved, t1.success = True, False
+    t2 = Task(id="t2", owner=1, kind=TaskKind.WIN_NO_TRICKS, params={})
+    assert missions_completed([t1, t2]) is False
