@@ -68,10 +68,22 @@ AI 플레이어를 만들고, 온라인에서 친구들과 실시간으로 그 A
   백그라운드로 학습, (c) 필요하면 신경망 크기·러닝레이트 등 하이퍼파라미터 튜닝,
   (d) GPU 사용 여부 검토.
 
-### Phase 3 — 실시간 온라인 플레이 서비스
-- 백엔드: FastAPI + WebSocket (방 생성, 좌석 배정, 턴 진행, AI 플레이어 좌석 포함)
-- 프론트엔드: React (또는 간단한 SPA) — 손패, 트릭, 과제, 통신 UI
-- 학습된 정책망을 백엔드에서 추론 서버로 서빙 (같은 프로세스 내 PyTorch 추론으로 충분)
+### Phase 3 — 실시간 온라인 플레이 서비스 ✅ 뼈대 완료
+- `src/deepsea/web/rooms.py`: 인메모리 Room/좌석 관리 (사람=WebSocket, AI=RandomPlayer;
+  단일 프로세스 전제, 재연결/영속화는 아직 없음 — 스켈레톤 단계라 의도적으로 단순하게 둠)
+- `src/deepsea/web/serialize.py`: 좌석별 JSON 뷰 (본인 손패만 노출, 남은 카드 수·트릭·
+  과제·신호는 공개 정보로 전원에게 전송)
+- `src/deepsea/web/server.py`: FastAPI. `POST /api/rooms`로 방 생성, `/ws/{code}`
+  WebSocket으로 join/add_ai/start/play/communicate 메시지 처리, AI 차례는 서버가 자동 처리
+- `src/deepsea/web/static/`: React 대신 순수 HTML/CSS/JS 스켈레톤 (npm 툴체인 없이 바로
+  구동 가능하게 하려는 선택 — 추후 필요하면 React로 교체 가능, 프로토콜(REST+WS JSON)은
+  프론트엔드 구현체와 무관하게 재사용됨)
+- 브라우저로 방 생성 → AI 2석 채움 → 게임 시작 → 합법수만 클릭 가능 → AI 턴 자동 진행 →
+  Sonar 통신(카드 선택 후 신호 전송) → 미션 종료 배너까지 전체 플로우 실제 검증 완료
+- **아직 안 한 것**: 학습된 체크포인트를 AI 좌석에 연결 (지금은 전부 RandomPlayer),
+  재연결/방 목록/영속 저장소, 모바일 반응형, React 전환 여부 결정
 
 ## 다음 액션
-Phase 1 코드 작성 중. 완료되면 `python -m deepsea.cli`로 플레이 가능.
+Phase 1~3 스켈레톤 모두 동작. 다음 선택지: (a) Phase 2 본격 학습(더 긴 시간 필요),
+(b) 학습된 체크포인트를 웹 AI 좌석에 연결, (c) 실제 룰북 확보해 `data/tasks.json`을
+진짜 96장 과제로 교체, (d) UI/UX 다듬기(React 전환 등).

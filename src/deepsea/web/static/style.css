@@ -1,0 +1,33 @@
+body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; background: #0b1e2d; color: #e8f1f5; }
+h1 { font-size: 1.4rem; }
+.subtitle { font-size: 0.75rem; color: #8ab; font-weight: normal; }
+.hidden { display: none !important; }
+.panel { border: 1px solid #244; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+label { display: block; margin: 0.4rem 0; }
+input { margin-left: 0.5rem; }
+button { margin: 0.4rem 0.4rem 0.4rem 0; padding: 0.4rem 0.8rem; cursor: pointer; }
+button:disabled { opacity: 0.4; cursor: not-allowed; }
+#seatList { list-style: none; padding: 0; }
+#seatList li { padding: 0.2rem 0; }
+.card {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 2.4rem; height: 3.4rem; margin: 0.15rem; border-radius: 6px;
+  font: inherit; font-weight: bold; color: #fff; cursor: pointer;
+  border: 2px solid transparent; padding: 0; outline: none;
+  user-select: none;
+}
+.card.disabled { opacity: 0.3; cursor: not-allowed; }
+.card.comm-only { opacity: 0.55; border-style: dashed; border-color: #8ab; }
+.card.selected { border-color: #fff; border-style: solid; opacity: 1; }
+.card.yellow { background: #b8960a; }
+.card.pink { background: #c23b7a; }
+.card.green { background: #2c8a4b; }
+.card.blue { background: #2662b0; }
+.card.submarine { background: #444; }
+#table, #handSizes, #signals, #taskList { margin: 0.6rem 0; }
+.task { padding: 0.2rem 0; }
+.task.ok { color: #6f6; }
+.task.failed { color: #f66; text-decoration: line-through; }
+#outcomeBanner { padding: 0.8rem; border-radius: 6px; font-weight: bold; margin-bottom: 0.6rem; }
+#outcomeBanner.success { background: #1b5e20; }
+#outcomeBanner.failure { background: #5e1b1b; }

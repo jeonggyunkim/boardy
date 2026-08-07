@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Deep Sea Crew Online</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <h1>Deep Sea Crew <span class="subtitle">(placeholder rules — see docs/PLAN.md)</span></h1>
+
+  <section id="landing">
+    <div class="panel">
+      <h2>새 방 만들기</h2>
+      <label>인원수 <input id="np" type="number" min="2" max="5" value="3"></label>
+      <label>난이도 <input id="diff" type="number" min="1" max="20" value="8"></label>
+      <label>이름 <input id="createName" value="player"></label>
+      <button id="createBtn">방 만들기</button>
+    </div>
+    <div class="panel">
+      <h2>방 참가</h2>
+      <label>방 코드 <input id="joinCode" maxlength="5" style="text-transform:uppercase"></label>
+      <label>이름 <input id="joinName" value="player"></label>
+      <button id="joinBtn">참가</button>
+    </div>
+  </section>
+
+  <section id="lobby" class="hidden">
+    <h2>방 코드: <span id="roomCode"></span></h2>
+    <ul id="seatList"></ul>
+    <button id="addAiBtn">AI 추가</button>
+    <button id="startBtn">게임 시작</button>
+  </section>
+
+  <section id="game" class="hidden">
+    <div id="outcomeBanner" class="hidden"></div>
+    <div id="taskList"></div>
+    <div id="table"></div>
+    <div id="handSizes"></div>
+    <div id="signals"></div>
+    <h3>내 손패 (<span id="turnIndicator"></span>)</h3>
+    <div id="hand"></div>
+    <button id="commBtn" disabled>선택한 카드로 통신하기</button>
+  </section>
+
+<script src="/app.js"></script>
+</body>
+</html>

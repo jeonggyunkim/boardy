@@ -6,6 +6,8 @@ requires-python = ">=3.11"
 dependencies = [
     "torch>=2.2",
     "numpy>=1.26",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
 ]
 
 [project.optional-dependencies]
@@ -22,3 +24,4 @@ where = ["src"]
 deepsea-cli = "deepsea.cli:main"
 deepsea-train = "deepsea.train:main"
 deepsea-eval = "deepsea.evaluate:main"
+deepsea-web = "deepsea.web.server:run"
