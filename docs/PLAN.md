@@ -27,26 +27,35 @@ AI 플레이어를 만들고, 온라인에서 친구들과 실시간으로 그 A
 
 ## 단계별 계획
 
-### Phase 1 — 규칙 엔진 (CLI) ✅ 진행 중
+### Phase 1 — 규칙 엔진 (CLI) ✅ 완료
 - `src/deepsea/cards.py`: 카드/덱
 - `src/deepsea/tasks.py`: 과제 DSL + 완료 판정
 - `src/deepsea/communication.py`: Sonar 토큰 통신
-- `src/deepsea/state.py`: 게임 상태 (핸드, 트릭, 진행 정보)
-- `src/deepsea/engine.py`: 트릭 해석, 합법수 생성, 승패 판정
+- `src/deepsea/engine.py`: 게임 상태, 트릭 해석, 합법수 생성, 승패 판정
+- `src/deepsea/missions.py`: `data/tasks.json` 템플릿으로 실제 미션(과제 목록) 생성
 - `src/deepsea/cli.py`: 사람 vs 랜덤봇 CLI 대화형 플레이
-- `tests/`: pytest
+- `tests/`: pytest (20개 통과)
 
-### Phase 2 — AI 플레이어 학습
-- The Crew는 협력 + 불완전정보(hidden hand) 게임이라 순수 AlphaZero(완전정보, 제로섬)를
-  그대로 쓸 수 없음. 접근 방식:
-  1. 학습 중에는 "oracle" 관점(모든 손패 공개)으로 self-play를 돌리는 Perfect-Information
-     MCTS(각 시뮬레이션마다 상대 손패를 현재 정보집합과 일치하게 무작위 재배치 =
-     "determinization")로 정책/가치망을 학습
-  2. 실전(추론) 시에는 자신의 손패 + 공개된 통신 정보만으로 ISMCTS 수행
-  3. 라이브러리: PyTorch로 직접 정책/가치망 + MCTS 구현 (범용 alpha-zero-general은
-     2인 제로섬 가정이 강해 협력 게임엔 그대로 안 맞음 → 커스텀 self-play 루프 필요.
-     다만 신경망 구조/학습 루프 참고용으로 조사 예정)
-- 보상: 미션(과제 세트) 성공 시 +1, 실패 시 0/-1, 조기 실패 시 즉시 종료
+### Phase 2 — AI 플레이어 학습 ✅ 파이프라인 완료, 학습 진행 중
+채택한 구조 (제안대로 진행):
+1. **학습**: `mcts.py`의 `run_mcts`가 실제(oracle) `GameState` 위에서 표준 PUCT 탐색을 돈다 —
+   협력 + 순차턴(한 번에 한 명만 행동) 게임이라 제로섬 minimax의 부호 반전이 필요 없고,
+   그냥 공유 스칼라 가치(미션 성공 확률)를 트리 위로 그대로 backup하는 단일 에이전트
+   MCTS로 축소됨. 신경망은 노드마다 항상 "행동할 좌석 하나의" 부분정보 인코딩만 보고
+   정책/가치를 예측하므로, 탐색 자체는 치팅해도 신경망은 은닉정보 없이 일반화하도록 학습됨.
+2. **실전 추론**: `mcts_inference.py`의 `run_ismcts`가 여러 개의 "determinization"
+   (공개 정보 — 지금까지 낸 카드, 트릭 위 카드, 공개된 Sonar 신호, 그리고 트릭 규칙상
+   특정 색을 안 따라간 사람은 그 색이 없다는 표준 추론)에 부합하는 손패 배치를 무작위로
+   샘플링해 각각에 대해 `run_mcts`를 돌리고, 루트의 방문 횟수를 모아 최종 정책으로 사용.
+3. 구현체: `src/deepsea/encoding.py`(자기중심 특징 인코딩), `network.py`(PyTorch MLP,
+   정책 헤드 40장 카드 + 가치 헤드 시그모이드), `self_play.py`, `train.py`(자기대국 →
+   리플레이 버퍼 → 학습 → 체크포인트 저장 루프), `evaluate.py`(RandomPlayer 대비 미션
+   성공률 비교).
+- 범용 alpha-zero-general 라이브러리는 2인 제로섬/완전정보 가정이 강해 그대로 못 쓰고,
+  위 구조를 직접 구현함 (체스/바둑/오델로류 완전정보 게임엔 적합하지만 이 프로젝트엔 부적합).
+- 보상: 미션(과제 세트) 전원 성공 시 1.0, 하나라도 실패 시 0.0 (팀 공유 가치).
+- 다음 확인할 것: 학습이 실제로 RandomPlayer 대비 성공률을 유의미하게 끌어올리는지
+  (`deepsea-eval`로 검증), 이후 반복 횟수/시뮬레이션 수를 늘려 본격 학습.
 
 ### Phase 3 — 실시간 온라인 플레이 서비스
 - 백엔드: FastAPI + WebSocket (방 생성, 좌석 배정, 턴 진행, AI 플레이어 좌석 포함)
