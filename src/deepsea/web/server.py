@@ -63,7 +63,7 @@ async def ws_room(ws: WebSocket, code: str, name: str = "player") -> None:
             mtype = msg.get("type")
 
             if mtype == "add_ai" and not room.started:
-                room.add_ai()
+                room.add_ai(mode=msg.get("mode", "random"))
                 await room.broadcast_lobby()
             elif mtype == "start" and not room.started:
                 try:

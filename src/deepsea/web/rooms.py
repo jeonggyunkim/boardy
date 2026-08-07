@@ -9,6 +9,7 @@ deployment.
 
 from __future__ import annotations
 
+import asyncio
 import random
 import string
 from dataclasses import dataclass, field
@@ -17,7 +18,8 @@ from fastapi import WebSocket
 
 from ..cards import Card
 from ..engine import GameState, new_game
-from ..players import Player, RandomPlayer
+from ..players import NetPlayer, Player, RandomPlayer
+from .ai import get_shared_net
 from .serialize import serialize_state
 
 
@@ -61,11 +63,22 @@ class Room:
                 return i
         return None
 
-    def add_ai(self, name: str | None = None) -> int | None:
+    def add_ai(self, mode: str = "random", name: str | None = None) -> int | None:
         for i, s in enumerate(self.seats):
             if s is None:
-                seat_name = name or f"AI-{i}"
-                self.seats[i] = SeatInfo(name=seat_name, kind="ai", ai_player=RandomPlayer(name=seat_name))
+                tag = "smart" if mode == "smart" else "random"
+                seat_name = name or f"AI-{i}({tag})"
+                if mode == "smart":
+                    player: Player = NetPlayer(
+                        get_shared_net(),
+                        name=seat_name,
+                        use_search=True,
+                        num_determinizations=5,
+                        sims_per_determinization=15,
+                    )
+                else:
+                    player = RandomPlayer(name=seat_name)
+                self.seats[i] = SeatInfo(name=seat_name, kind="ai", ai_player=player)
                 return i
         return None
 
@@ -144,7 +157,10 @@ class Room:
             seat_info = self.seats[seat]
             if seat_info is None or seat_info.kind != "ai":
                 break
-            card = seat_info.ai_player.choose_card(self.state, seat)
+            loop = asyncio.get_running_loop()
+            card = await loop.run_in_executor(
+                None, seat_info.ai_player.choose_card, self.state, seat
+            )
             self._apply_move(seat, card)
             await self.broadcast()
 

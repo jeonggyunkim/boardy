@@ -110,8 +110,16 @@ function renderState(s) {
     : "";
 
   const isMyTurn = s.player_to_act === s.seat;
+  const actingPlayer = s.player_to_act !== null ? s.players[s.player_to_act] : null;
+  const actingIsAi = actingPlayer && actingPlayer.kind === "ai";
   el("turnIndicator").textContent =
-    s.player_to_act === null ? "게임 종료" : isMyTurn ? "당신 차례" : `P${s.player_to_act} 차례 대기`;
+    s.player_to_act === null
+      ? "게임 종료"
+      : isMyTurn
+      ? "당신 차례"
+      : actingIsAi
+      ? `${actingPlayer.name} 생각 중...`
+      : `P${s.player_to_act} 차례 대기`;
 
   const handDiv = el("hand");
   handDiv.innerHTML = "";
@@ -169,5 +177,6 @@ el("joinBtn").onclick = () => {
   connect(code, name);
 };
 
-el("addAiBtn").onclick = () => ws.send(JSON.stringify({ type: "add_ai" }));
+el("addAiBtn").onclick = () =>
+  ws.send(JSON.stringify({ type: "add_ai", mode: el("aiMode").value }));
 el("startBtn").onclick = () => ws.send(JSON.stringify({ type: "start" }));
