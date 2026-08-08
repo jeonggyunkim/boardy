@@ -27,6 +27,32 @@ def play_game(black: Player, white: Player) -> int:
     return board.winner  # 1=black won, -1=white won, 0=draw
 
 
+def arena(
+    candidate: PolicyValueNet,
+    incumbent: PolicyValueNet,
+    num_games: int,
+    num_simulations: int,
+    temperature: float = 0.4,
+) -> tuple[int, int, int]:
+    """Play candidate vs incumbent, alternating colors. Returns (candidate_wins,
+    incumbent_wins, draws). temperature > 0 so games are actually independent
+    (not the same deterministic game replayed with colors swapped)."""
+    cand_wins = inc_wins = draws = 0
+    for g in range(num_games):
+        cand_is_black = g % 2 == 0
+        cand_player = NetPlayer(candidate, name="candidate", num_simulations=num_simulations, temperature=temperature)
+        inc_player = NetPlayer(incumbent, name="incumbent", num_simulations=num_simulations, temperature=temperature)
+        winner = play_game(cand_player, inc_player) if cand_is_black else play_game(inc_player, cand_player)
+        cand_color = 1 if cand_is_black else -1
+        if winner == 0:
+            draws += 1
+        elif winner == cand_color:
+            cand_wins += 1
+        else:
+            inc_wins += 1
+    return cand_wins, inc_wins, draws
+
+
 def run_eval(checkpoint: Path | None, num_games: int, num_simulations: int, seed: int) -> None:
     net = PolicyValueNet()
     if checkpoint is not None:

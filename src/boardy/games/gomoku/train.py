@@ -1,5 +1,15 @@
 """Self-play training loop: generate games with MCTS, fit the network, repeat.
 
+Uses AlphaZero-style gatekeeping: self-play always uses the current *best*
+network; after each iteration's gradient updates, the freshly-trained
+candidate has to beat the best network in a small arena match before it's
+promoted. If it doesn't, the candidate is reset to the best network's
+weights and training continues from there. Without this, a network can
+regress for a while and there's nothing to notice or correct it -- which
+is exactly what an early Gomoku run here demonstrated (see docs/PLAN.md):
+after 15 ungated iterations, the "trained" network actually lost a real
+head-to-head majority to an untrained one.
+
 Usage:
     python -m boardy.games.gomoku.train --iterations 20 --games-per-iter 20
 """
@@ -18,6 +28,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from .evaluate import arena
 from .network import PolicyValueNet
 from .self_play import Example, play_self_play_game
 
@@ -53,17 +64,25 @@ def run_training(
     lr: float,
     buffer_size: int,
     checkpoint_dir: Path,
+    arena_games: int,
+    arena_simulations: int,
     seed: int | None,
 ) -> None:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     rng = random.Random(seed)
     torch.manual_seed(seed or 0)
 
-    net = PolicyValueNet()
-    latest = checkpoint_dir / "latest.pt"
-    if latest.exists():
-        net.load_state_dict(torch.load(latest, map_location="cpu"))
-        print(f"Resumed from {latest}")
+    net = PolicyValueNet()  # candidate being trained this iteration
+    best_net = PolicyValueNet()  # incumbent: used for self-play + arena baseline
+    best_path = checkpoint_dir / "best.pt"
+    latest_path = checkpoint_dir / "latest.pt"  # mirrors best.pt; kept for compatibility with ai.py loaders
+    if best_path.exists():
+        state = torch.load(best_path, map_location="cpu")
+        net.load_state_dict(state)
+        best_net.load_state_dict(state)
+        print(f"Resumed from {best_path}")
+    else:
+        best_net.load_state_dict(net.state_dict())
 
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)
     buffer: deque[Example] = deque(maxlen=buffer_size)
@@ -72,7 +91,7 @@ def run_training(
         t0 = time.time()
         black_wins = white_wins = draws = 0
         for _ in range(games_per_iter):
-            examples, winner = play_self_play_game(net, num_simulations=num_simulations)
+            examples, winner = play_self_play_game(best_net, num_simulations=num_simulations)
             buffer.extend(examples)
             if winner == 1:
                 black_wins += 1
@@ -90,15 +109,26 @@ def run_training(
                 policy_losses.append(pl)
                 value_losses.append(vl)
 
-        torch.save(net.state_dict(), latest)
-        torch.save(net.state_dict(), checkpoint_dir / f"iter_{it:04d}.pt")
+        t1 = time.time()
+        cand_wins, inc_wins, arena_draws = arena(net, best_net, arena_games, arena_simulations)
+        arena_time = time.time() - t1
+        promoted = cand_wins > inc_wins
+        if promoted:
+            best_net.load_state_dict(net.state_dict())
+            torch.save(best_net.state_dict(), best_path)
+        else:
+            net.load_state_dict(best_net.state_dict())  # reject: reset candidate to incumbent
+        torch.save(net.state_dict(), latest_path)
+        torch.save(best_net.state_dict(), checkpoint_dir / f"iter_{it:04d}.pt")
 
         pl_mean = np.mean(policy_losses) if policy_losses else float("nan")
         vl_mean = np.mean(value_losses) if value_losses else float("nan")
         print(
-            f"iter {it}/{iterations}  black={black_wins} white={white_wins} draw={draws}  "
+            f"iter {it}/{iterations}  selfplay(best): black={black_wins} white={white_wins} draw={draws}  "
             f"buffer={len(buffer)}  policy_loss={pl_mean:.3f}  value_loss={vl_mean:.3f}  "
-            f"gen_time={gen_time:.1f}s"
+            f"arena: cand={cand_wins} inc={inc_wins} draw={arena_draws} -> "
+            f"{'PROMOTED' if promoted else 'rejected'}  "
+            f"gen_time={gen_time:.1f}s arena_time={arena_time:.1f}s"
         )
 
 
@@ -114,6 +144,8 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=1e-3)
     parser.add_argument("--buffer-size", type=int, default=50000)
     parser.add_argument("--checkpoint-dir", type=Path, default=DEFAULT_CHECKPOINT_DIR)
+    parser.add_argument("--arena-games", type=int, default=12)
+    parser.add_argument("--arena-simulations", type=int, default=80)
     parser.add_argument("--seed", type=int, default=None)
     args = parser.parse_args()
 
@@ -126,6 +158,8 @@ def main() -> None:
         lr=args.lr,
         buffer_size=args.buffer_size,
         checkpoint_dir=args.checkpoint_dir,
+        arena_games=args.arena_games,
+        arena_simulations=args.arena_simulations,
         seed=args.seed,
     )
 
