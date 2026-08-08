@@ -18,6 +18,7 @@ def serialize_seat(state: GameState, seat: int, players_meta: list[dict]) -> dic
         "num_players": state.num_players,
         "hand": [str(c) for c in state.hands[seat]],
         "hand_sizes": [len(h) for h in state.hands],
+        "tricks_won": [state.wins_per_player.get(i, 0) for i in range(state.num_players)],
         "legal_moves": legal,
         "player_to_act": state.player_to_act,
         "current_leader": state.current_leader,

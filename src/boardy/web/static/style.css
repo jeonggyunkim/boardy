@@ -33,18 +33,29 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 #outcomeBanner.failure { background: #5e1b1b; }
 .hint { font-size: 0.8rem; color: #8ab; margin: 0.2rem 0 0.6rem; }
 
-#gomokuBoard { display: inline-block; border: 2px solid #244; background: #1a3346; }
-.gomoku-row { display: flex; }
-.gomoku-cell {
-  width: 2.2rem; height: 2.2rem; border: 1px solid #244;
-  display: flex; align-items: center; justify-content: center;
-  cursor: pointer; padding: 0; background: transparent;
+/* Real Gomoku board: stones sit ON the intersections of a line grid, not
+   inside cells. #gomokuBoard is a position:relative canvas; line divs and
+   point buttons are placed absolutely within it (see app.js). */
+#gomokuBoard {
+  position: relative; display: inline-block; margin: 0.5rem 0;
+  background: #c8944a; border: 2px solid #6b4a24; border-radius: 4px;
 }
-.gomoku-cell:disabled { cursor: not-allowed; }
-.gomoku-cell .stone {
-  width: 1.6rem; height: 1.6rem; border-radius: 50%;
+.gomoku-line {
+  position: absolute; background: #6b4a24; opacity: 0.8;
 }
-.gomoku-cell .stone.black { background: #111; border: 1px solid #555; }
-.gomoku-cell .stone.white { background: #eee; border: 1px solid #999; }
-.gomoku-cell.last-move { background: #2a4a63; }
-.gomoku-cell.legal:hover { background: #234; }
+.gomoku-point {
+  position: absolute; width: 26px; height: 26px; margin: 0; padding: 0;
+  transform: translate(-50%, -50%); border-radius: 50%;
+  border: none; background: transparent; cursor: default; outline: none;
+}
+.gomoku-point.legal { cursor: pointer; }
+.gomoku-point.legal:hover { background: rgba(255, 255, 255, 0.3); }
+.gomoku-point .stone {
+  position: absolute; inset: 2px; border-radius: 50%;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+}
+.gomoku-point .stone.black { background: radial-gradient(circle at 35% 30%, #555, #111 70%); }
+.gomoku-point .stone.white { background: radial-gradient(circle at 35% 30%, #fff, #ccc 70%); }
+.gomoku-point.last-move .stone::after {
+  content: ""; position: absolute; inset: 35%; border-radius: 50%; background: #e33;
+}

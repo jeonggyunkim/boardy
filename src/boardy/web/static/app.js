@@ -105,6 +105,16 @@ function cardEl(code, { clickable, selected } = {}) {
   return btn;
 }
 
+function trickCardSpan(seat, code, isWinner = false) {
+  const wrap = document.createElement("span");
+  wrap.style.marginRight = "0.5rem";
+  const label = document.createElement("small");
+  label.textContent = `P${seat}${isWinner ? "★" : ""}: `;
+  wrap.appendChild(label);
+  wrap.appendChild(cardEl(code, { clickable: false }));
+  return wrap;
+}
+
 function renderDeepSeaCrew(s) {
   if (s.outcome !== null) {
     const banner = el("outcomeBanner");
@@ -125,20 +135,38 @@ function renderDeepSeaCrew(s) {
   });
 
   const table = el("table");
-  table.innerHTML = `<b>트릭 #${s.trick_number}</b><br>`;
-  for (const [seat, code] of Object.entries(s.trick_in_progress)) {
-    const wrap = document.createElement("span");
-    wrap.style.marginRight = "0.5rem";
-    const label = document.createElement("small");
-    label.textContent = `P${seat}: `;
-    wrap.appendChild(label);
-    wrap.appendChild(cardEl(code, { clickable: false }));
-    table.appendChild(wrap);
+  table.innerHTML = "";
+  const inProgress = Object.keys(s.trick_in_progress).length > 0;
+  const lastTrick = s.history.length ? s.history[s.history.length - 1] : null;
+  if (inProgress) {
+    const heading = document.createElement("b");
+    heading.textContent = `트릭 #${s.trick_number}`;
+    table.appendChild(heading);
+    table.appendChild(document.createElement("br"));
+    for (const [seat, code] of Object.entries(s.trick_in_progress)) {
+      table.appendChild(trickCardSpan(seat, code));
+    }
+  } else if (lastTrick) {
+    // trick_in_progress clears the instant the last card is played, so
+    // without this the whole table would blink empty before anyone can
+    // see what was played -- keep showing the just-finished trick until
+    // the next one starts filling up.
+    const heading = document.createElement("b");
+    heading.textContent = `직전 트릭 #${lastTrick.number} (P${lastTrick.winner} 승)`;
+    table.appendChild(heading);
+    table.appendChild(document.createElement("br"));
+    for (const [seat, code] of Object.entries(lastTrick.cards)) {
+      table.appendChild(trickCardSpan(seat, code, seat == lastTrick.winner));
+    }
+  } else {
+    table.innerHTML = `<b>트릭 #${s.trick_number}</b>`;
   }
 
   el("handSizes").innerHTML =
     "<b>남은 카드 수</b>: " +
-    s.hand_sizes.map((n, i) => `P${i}${i === s.seat ? "(나)" : ""}:${n}`).join("  ");
+    s.hand_sizes.map((n, i) => `P${i}${i === s.seat ? "(나)" : ""}:${n}`).join("  ") +
+    "<br><b>획득한 트릭</b>: " +
+    s.tricks_won.map((n, i) => `P${i}${i === s.seat ? "(나)" : ""}:${n}`).join("  ");
 
   const sigDiv = el("signals");
   const sigEntries = Object.entries(s.signals);
@@ -214,33 +242,62 @@ function renderGomoku(s) {
       ? `${actingPlayer.name} 생각 중...`
       : `P${s.player_to_act} 차례 대기`;
 
+  renderGomokuBoard(s, isMyTurn);
+}
+
+const GOMOKU_CELL = 32; // px between line intersections
+const GOMOKU_MARGIN = 20; // px padding so edge stones aren't clipped
+
+function renderGomokuBoard(s, isMyTurn) {
   const legalSet = new Set(s.legal_moves);
   const boardDiv = el("gomokuBoard");
   boardDiv.innerHTML = "";
+  const span = (s.size - 1) * GOMOKU_CELL;
+  boardDiv.style.width = `${span + GOMOKU_MARGIN * 2}px`;
+  boardDiv.style.height = `${span + GOMOKU_MARGIN * 2}px`;
+
+  // grid lines, drawn between the first and last intersection on each axis
+  for (let i = 0; i < s.size; i++) {
+    const h = document.createElement("div");
+    h.className = "gomoku-line";
+    h.style.left = `${GOMOKU_MARGIN}px`;
+    h.style.top = `${GOMOKU_MARGIN + i * GOMOKU_CELL}px`;
+    h.style.width = `${span}px`;
+    h.style.height = "1px";
+    boardDiv.appendChild(h);
+
+    const v = document.createElement("div");
+    v.className = "gomoku-line";
+    v.style.left = `${GOMOKU_MARGIN + i * GOMOKU_CELL}px`;
+    v.style.top = `${GOMOKU_MARGIN}px`;
+    v.style.width = "1px";
+    v.style.height = `${span}px`;
+    boardDiv.appendChild(v);
+  }
+
+  // one clickable point per intersection, stone rendered on top when occupied
   for (let r = 0; r < s.size; r++) {
-    const rowDiv = document.createElement("div");
-    rowDiv.className = "gomoku-row";
     for (let c = 0; c < s.size; c++) {
       const value = s.board[r * s.size + c];
       const key = `${r},${c}`;
-      const cell = document.createElement("button");
-      cell.type = "button";
-      cell.className = "gomoku-cell";
-      if (s.last_move && s.last_move[0] === r && s.last_move[1] === c) cell.classList.add("last-move");
       const legal = isMyTurn && legalSet.has(key);
-      cell.disabled = !legal;
-      if (legal) cell.classList.add("legal");
+      const point = document.createElement("button");
+      point.type = "button";
+      point.className = "gomoku-point" + (legal ? " legal" : "");
+      point.style.left = `${GOMOKU_MARGIN + c * GOMOKU_CELL}px`;
+      point.style.top = `${GOMOKU_MARGIN + r * GOMOKU_CELL}px`;
+      point.disabled = !legal;
+      if (s.last_move && s.last_move[0] === r && s.last_move[1] === c) point.classList.add("last-move");
       if (value !== 0) {
         const stone = document.createElement("span");
         stone.className = "stone " + (value === 1 ? "black" : "white");
-        cell.appendChild(stone);
+        point.appendChild(stone);
       }
-      cell.onclick = () => {
+      point.onclick = () => {
         if (legal) ws.send(JSON.stringify({ type: "play", action: key }));
       };
-      rowDiv.appendChild(cell);
+      boardDiv.appendChild(point);
     }
-    boardDiv.appendChild(rowDiv);
   }
 }
 
