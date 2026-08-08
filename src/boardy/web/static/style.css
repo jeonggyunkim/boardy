@@ -21,17 +21,28 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   user-select: none;
 }
 .card.disabled { opacity: 0.3; cursor: not-allowed; }
-.card.comm-only { opacity: 0.55; border-style: dashed; border-color: #8ab; }
-.card.selected { border-color: #fff; border-style: solid; opacity: 1; }
 .card.yellow { background: #b8960a; }
 .card.pink { background: #c23b7a; }
 .card.green { background: #2c8a4b; }
 .card.blue { background: #2662b0; }
 .card.submarine { background: #444; }
-#table, #signals, #taskList { margin: 0.6rem 0; }
-.task { padding: 0.2rem 0; }
-.task.ok { color: #6f6; }
-.task.failed { color: #f66; text-decoration: line-through; }
+#table { margin: 0.6rem 0; }
+
+/* Sonar communication: a token glued to the top/middle/bottom edge of a
+   card -- top = highest, middle = only, bottom = lowest of that suit in
+   the revealing player's hand. Used both as a click-preview on your own
+   hand (see cardMarker in app.js) and as the public display of whoever
+   has an active signal (see .signal-slot below). */
+.card-wrap { position: relative; display: inline-block; }
+.comm-token {
+  position: absolute; left: 50%; width: 14px; height: 14px;
+  border-radius: 50%; background: #ffd54a; border: 2px solid #8a6d00;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); pointer-events: none;
+}
+.comm-token.token-top { top: -5px; transform: translateX(-50%); }
+.comm-token.token-mid { top: 50%; transform: translate(-50%, -50%); }
+.comm-token.token-bottom { bottom: -5px; transform: translateX(-50%); }
+.signal-slot { margin-top: 0.4rem; }
 #outcomeBanner { padding: 0.8rem; border-radius: 6px; font-weight: bold; margin-bottom: 0.6rem; }
 #outcomeBanner.success { background: #1b5e20; }
 #outcomeBanner.failure { background: #5e1b1b; }

@@ -1,10 +1,48 @@
 let ws = null;
 let mySeat = null;
-let selectedForComm = null;
 let lastState = null;
 let games = [];
+// Which trick number the fly-to-pile animation has already played for, so
+// re-renders triggered by unrelated events (e.g. a communicate click) don't
+// replay it (see flyCardsToPile / renderDeepSeaCrew).
+let animatedTrickNumber = null;
 
 const suitClass = (code) => ({ Y: "yellow", P: "pink", G: "green", B: "blue", S: "submarine" }[code[0]] || "");
+
+// Mirrors communication.py's valid_marker(): which Sonar marker (if any)
+// `code` would truthfully get if revealed from `hand`. Own hand is fully
+// known client-side, so this can be previewed before the click is sent.
+function cardMarker(code, hand) {
+  const suit = code[0];
+  const sameSuit = hand.filter((c) => c[0] === suit);
+  if (sameSuit.length === 1) return "only";
+  const rankOf = (c) => parseInt(c.slice(1), 10);
+  const ranks = sameSuit.map(rankOf);
+  const r = rankOf(code);
+  if (r === Math.max(...ranks)) return "highest";
+  if (r === Math.min(...ranks)) return "lowest";
+  return null;
+}
+
+const MARKER_POS = { highest: "top", only: "mid", lowest: "bottom" };
+const MARKER_LABEL_KO = { highest: "최고", only: "유일", lowest: "최저" };
+
+// Wraps a card element with a small Sonar token glued to its top/middle/
+// bottom edge, positioned per MARKER_POS -- top = highest, middle = only,
+// bottom = lowest (see docs/deep_sea_crew_rules.md's 통신 section).
+function cardWithToken(cardNode, marker) {
+  const wrap = document.createElement("span");
+  wrap.className = "card-wrap";
+  wrap.appendChild(cardNode);
+  const pos = MARKER_POS[marker];
+  if (pos) {
+    const token = document.createElement("span");
+    token.className = `comm-token token-${pos}`;
+    token.title = `표시: ${MARKER_LABEL_KO[marker]}`;
+    wrap.appendChild(token);
+  }
+  return wrap;
+}
 
 function el(id) { return document.getElementById(id); }
 function show(id) { el(id).classList.remove("hidden"); }
@@ -79,6 +117,7 @@ function handleMessage(msg) {
   }
   if (msg.type === "joined") {
     mySeat = msg.seat;
+    animatedTrickNumber = null;
     hide("landing");
     hide("seatPicker");
     show("lobby");
@@ -123,7 +162,7 @@ el("homeBtn").onclick = () => {
   }
   lastState = null;
   mySeat = null;
-  selectedForComm = null;
+  animatedTrickNumber = null;
   hide("game");
   hide("seatPicker");
   hide("lobby");
@@ -149,10 +188,10 @@ function renderLobby(msg) {
 
 // ---------- Deep Sea Crew rendering ----------
 
-function cardEl(code, { clickable, selected } = {}) {
+function cardEl(code, { clickable } = {}) {
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.className = `card ${suitClass(code)}` + (clickable ? "" : " disabled") + (selected ? " selected" : "");
+  btn.className = `card ${suitClass(code)}` + (clickable ? "" : " disabled");
   btn.textContent = code;
   btn.disabled = !clickable;
   return btn;
@@ -241,6 +280,15 @@ function renderPlayerBoards(s) {
       });
     board.appendChild(taskDiv);
 
+    // this player's revealed Sonar signal (public info -- everyone sees
+    // it, same as the physical game: a face-up card with a token on it)
+    const sig = s.signals[i];
+    if (sig) {
+      const sigWrap = cardWithToken(cardEl(sig.card, { clickable: false }), sig.marker);
+      sigWrap.classList.add("signal-slot");
+      board.appendChild(sigWrap);
+    }
+
     container.appendChild(board);
   }
 }
@@ -292,15 +340,6 @@ function renderDeepSeaCrew(s) {
   show("playView");
   hide("draftView");
 
-  const taskDiv = el("taskList");
-  taskDiv.innerHTML = "<b>과제</b><br>";
-  s.tasks.forEach((t) => {
-    const p = document.createElement("div");
-    p.className = "task " + (t.resolved ? (t.success ? "ok" : "failed") : "");
-    p.textContent = t.describe;
-    taskDiv.appendChild(p);
-  });
-
   const table = el("table");
   table.innerHTML = "";
   const inProgress = Object.keys(s.trick_in_progress).length > 0;
@@ -330,20 +369,21 @@ function renderDeepSeaCrew(s) {
       table.appendChild(wrap);
       cardEls.push(wrap);
     }
-    flyCardsToPile(cardEls, lastTrick.winner);
+    // Only animate once, and only once "다음" has actually been
+    // acknowledged (awaiting_next false) -- otherwise the cards would fade
+    // away while the player is still supposed to be reviewing the trick,
+    // and every unrelated re-render (e.g. a communicate click) while still
+    // reviewing would replay the animation from scratch.
+    if (!s.awaiting_next && animatedTrickNumber !== lastTrick.number) {
+      animatedTrickNumber = lastTrick.number;
+      flyCardsToPile(cardEls, lastTrick.winner);
+    }
   } else {
     table.innerHTML = `<b>트릭 #${s.trick_number}</b>`;
   }
 
   el("nextTrickBtn").classList.toggle("hidden", !s.awaiting_next);
   el("nextTrickBtn").onclick = () => ws.send(JSON.stringify({ type: "next" }));
-
-  const sigDiv = el("signals");
-  const sigEntries = Object.entries(s.signals);
-  sigDiv.innerHTML = sigEntries.length
-    ? "<b>통신 신호</b>: " +
-      sigEntries.map(([p, sig]) => `P${p}=${sig.card}(${sig.marker})`).join("  ")
-    : "";
 
   // gated by awaiting_next too: the trick that just finished must be
   // acknowledged via "다음" before anyone (including the next leader) can act
@@ -364,29 +404,22 @@ function renderDeepSeaCrew(s) {
   handDiv.innerHTML = "";
   s.hand.forEach((code) => {
     const legal = isMyTurn && s.legal_moves.includes(code);
-    const commOnly = !legal && s.can_communicate;
-    const card = cardEl(code, { clickable: legal || commOnly, selected: code === selectedForComm });
-    if (commOnly) card.classList.add("comm-only");
-    card.title = legal ? "클릭해서 플레이" : commOnly ? "클릭해서 통신 신호로 선택" : "";
+    const marker = s.can_communicate ? cardMarker(code, s.hand) : null;
+    // A card can only signal if it's truthfully the highest/lowest/only
+    // of its suit in hand (see cardMarker) -- a middling card has no
+    // valid marker and can't be used to communicate, same as the server.
+    const commOnly = !legal && s.can_communicate && marker !== null;
+    const card = cardEl(code, { clickable: legal || commOnly });
+    card.title = legal ? "클릭해서 플레이" : commOnly ? `클릭해서 통신 토큰 놓기 (${MARKER_LABEL_KO[marker]})` : "";
     card.onclick = () => {
       if (legal) {
         ws.send(JSON.stringify({ type: "play", action: code }));
-        selectedForComm = null;
       } else if (commOnly) {
-        selectedForComm = selectedForComm === code ? null : code;
-        renderDeepSeaCrew(lastState);
+        ws.send(JSON.stringify({ type: "communicate", action: code }));
       }
     };
-    handDiv.appendChild(card);
+    handDiv.appendChild(commOnly ? cardWithToken(card, marker) : card);
   });
-
-  el("commBtn").disabled = !(s.can_communicate && selectedForComm);
-  el("commBtn").onclick = () => {
-    if (selectedForComm) {
-      ws.send(JSON.stringify({ type: "communicate", action: selectedForComm }));
-      selectedForComm = null;
-    }
-  };
 }
 
 // ---------- Gomoku rendering ----------
