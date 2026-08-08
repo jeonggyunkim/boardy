@@ -92,6 +92,9 @@ class Task:
             return
         if self.kind == TaskKind.WIN_NO_TRICKS:
             self._resolve(wins_per_player.get(self.owner, 0) == 0)
+        elif self.kind == TaskKind.NEVER_WIN_COLOR:
+            # never triggered a failure across the whole hand -> success
+            self._resolve(True)
         elif self.kind in (TaskKind.WIN_CARD, TaskKind.WIN_TRICK_NUMBER, TaskKind.WIN_FIRST_TRICK):
             self._resolve(False)  # the trick it depended on already passed without success
         else:

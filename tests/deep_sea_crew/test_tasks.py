@@ -23,6 +23,22 @@ def test_never_win_color_fails_immediately():
     assert t.resolved and not t.success
 
 
+def test_never_win_color_succeeds_if_never_violated():
+    t = Task(id="t1", owner=0, kind=TaskKind.NEVER_WIN_COLOR, params={"suit": "blue"})
+    # a full hand where the owner never wins a trick containing blue
+    t.check_after_trick(1, {0: Card(Suit.GREEN, 3), 1: Card(Suit.GREEN, 5)}, winner=1,
+                         wins_per_player={1: 1}, is_final_trick=True)
+    t.force_resolve_if_unresolved_at_end({1: 1})
+    assert t.resolved and t.success
+
+
+def test_win_no_tricks_succeeds_if_never_violated():
+    t = Task(id="t1", owner=0, kind=TaskKind.WIN_NO_TRICKS, params={})
+    t.check_after_trick(1, {0: Card(Suit.GREEN, 3), 1: Card(Suit.GREEN, 5)}, winner=1,
+                         wins_per_player={1: 1}, is_final_trick=True)
+    assert t.resolved and t.success  # already resolved by check_after_trick's own final-trick branch
+
+
 def test_missions_completed_none_while_pending():
     t1 = Task(id="t1", owner=0, kind=TaskKind.WIN_NO_TRICKS, params={})
     assert missions_completed([t1]) is None
