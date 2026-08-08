@@ -200,7 +200,8 @@ function renderPlayerBoards(s) {
     const name = document.createElement("div");
     name.className = "player-name";
     const meta = s.players[i] || {};
-    name.textContent = `P${i}${i === s.seat ? "(나)" : ""}${meta.name ? " " + meta.name : ""}`;
+    const leaderMark = i === s.current_leader ? "\u{1F451} " : "";
+    name.textContent = `${leaderMark}P${i}${i === s.seat ? "(나)" : ""}${meta.name ? " " + meta.name : ""}`;
     board.appendChild(name);
 
     const pile = document.createElement("div");
@@ -248,11 +249,12 @@ function renderDraft(s) {
   const isMyTurn = s.player_to_act === s.seat;
   const actingPlayer = s.player_to_act !== null ? s.players[s.player_to_act] : null;
   const actingIsAi = actingPlayer && actingPlayer.kind === "ai";
-  el("draftStatus").textContent = isMyTurn
+  const turnText = isMyTurn
     ? "과제 뽑기: 당신 차례 — 원하는 과제를 선택하세요"
     : actingIsAi
     ? `${actingPlayer.name} 과제 선택 중...`
     : `P${s.player_to_act} 과제 선택 대기`;
+  el("draftStatus").textContent = `\u{1F451} 사령관: P${s.current_leader}  |  ${turnText}`;
 
   const pool = el("draftPool");
   pool.innerHTML = "";
