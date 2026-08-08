@@ -15,6 +15,11 @@ class Player(ABC):
     @abstractmethod
     def choose_card(self, state: GameState, seat: int) -> Card: ...
 
+    @abstractmethod
+    def choose_task(self, state: GameState, seat: int) -> str:
+        """Return the id of one of state.available_tasks to draft."""
+        ...
+
     def choose_communication(self, state: GameState, seat: int) -> Card | None:
         """Return a card to signal this turn, or None to skip."""
         return None
@@ -27,6 +32,9 @@ class RandomPlayer(Player):
 
     def choose_card(self, state: GameState, seat: int) -> Card:
         return self.rng.choice(state.legal_cards_for(seat))
+
+    def choose_task(self, state: GameState, seat: int) -> str:
+        return self.rng.choice(state.available_tasks).id
 
 
 class NetPlayer(Player):
@@ -70,3 +78,9 @@ class NetPlayer(Player):
         from .encoding import ACTION_CARDS
 
         return ACTION_CARDS[idx]
+
+    def choose_task(self, state: GameState, seat: int) -> str:
+        # No search-based drafting strategy yet (would need the network/MCTS
+        # extended to cover task-choice actions, not just card play) -- picks
+        # randomly among the drawn tasks, same as RandomPlayer.
+        return self.rng.choice(state.available_tasks).id

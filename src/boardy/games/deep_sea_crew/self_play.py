@@ -9,6 +9,7 @@ team result, not per-player.
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass
 
 import numpy as np
@@ -37,6 +38,14 @@ def play_self_play_game(
     state = new_game(num_players, difficulty_budget=difficulty_budget, seed=seed)
     examples: list[Example] = []
     ply = 0
+
+    # No search-based drafting strategy yet -- draft randomly, same
+    # simplification as RandomPlayer/NetPlayer.choose_task (see players.py).
+    rng = random.Random(seed)
+    while state.phase == "task_draft":
+        seat = state.player_to_act
+        task = rng.choice(state.available_tasks)
+        state.draft_task(seat, task.id)
 
     while state.outcome is None:
         seat = state.player_to_act

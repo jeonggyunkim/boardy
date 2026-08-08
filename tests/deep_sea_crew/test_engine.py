@@ -10,10 +10,11 @@ def make_bare_state(num_players=3, hand_size=2) -> GameState:
     return GameState(
         num_players=num_players,
         hands=[[] for _ in range(num_players)],
-        tasks=[],
+        available_tasks=[],
         comms=CommunicationBoard(num_players),
         current_leader=0,
         hand_size=hand_size,
+        phase="playing",  # skip the task draft; these tests only exercise trick mechanics
     )
 
 
@@ -76,6 +77,9 @@ def test_full_random_game_terminates_with_outcome():
     for seed in range(20):
         state = new_game(num_players=3, difficulty_budget=6, seed=seed)
         players = [RandomPlayer(rng=random.Random(seed + i)) for i in range(3)]
+        while state.phase == "task_draft":
+            seat = state.player_to_act
+            state.draft_task(seat, players[seat].choose_task(state, seat))
         guard = 0
         while state.outcome is None:
             seat = state.player_to_act

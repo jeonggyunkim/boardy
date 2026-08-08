@@ -22,6 +22,8 @@ class _StrPlayerAdapter:
         self.name = inner.name
 
     def choose_action(self, state: GameState, seat: int) -> str:
+        if state.phase == "task_draft":
+            return self._inner.choose_task(state, seat)
         return str(self._inner.choose_card(state, seat))
 
 
@@ -42,11 +44,18 @@ def _make_smart_player(name: str) -> _StrPlayerAdapter:
 
 
 def _legal_actions(state: GameState, seat: int) -> list[str]:
+    if state.player_to_act != seat:
+        return []
+    if state.phase == "task_draft":
+        return [t.id for t in state.available_tasks]
     return [str(c) for c in state.legal_cards_for(seat)]
 
 
 def _play(state: GameState, seat: int, action: str) -> None:
-    state.play_card(seat, Card.parse(action))
+    if state.phase == "task_draft":
+        state.draft_task(seat, action)
+    else:
+        state.play_card(seat, Card.parse(action))
 
 
 def _communicate(state: GameState, seat: int, action: str) -> None:

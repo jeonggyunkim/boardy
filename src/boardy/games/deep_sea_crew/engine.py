@@ -1,4 +1,4 @@
-"""Core game engine: trick resolution, legal moves, mission progress.
+"""Core game engine: task draft, trick resolution, legal moves, mission progress.
 
 ASSUMPTION (unverified, see docs/PLAN.md): standard trick-taking rules —
 - Whoever holds submarine-4 leads the first trick (the "commander").
@@ -7,6 +7,12 @@ ASSUMPTION (unverified, see docs/PLAN.md): standard trick-taking rules —
 - A trick is won by the highest submarine card played, or if none was
   played, the highest card of the suit led.
 - Winner of a trick leads the next one.
+
+Before any trick play, the game is in a task-draft phase: a set of task
+cards is drawn face-up, and starting from the commander, players take
+turns (wrapping around the table as many times as needed) each claiming
+one card they want. This is a deliberate choice, not a random deal —
+tasks aren't assigned, they're drafted.
 """
 
 from __future__ import annotations
@@ -15,7 +21,7 @@ from dataclasses import dataclass, field
 
 from .cards import Card, Suit, deal
 from .communication import CommunicationBoard, Signal
-from .missions import build_mission
+from .missions import draw_tasks
 from .tasks import Task, missions_completed
 
 
@@ -60,10 +66,13 @@ class TrickRecord:
 class GameState:
     num_players: int
     hands: list[list[Card]]
-    tasks: list[Task]
+    available_tasks: list[Task]  # drawn, not yet claimed by anyone
     comms: CommunicationBoard
     current_leader: int
     hand_size: int
+    phase: str = "task_draft"  # "task_draft" | "playing"
+    tasks: list[Task] = field(default_factory=list)  # claimed tasks, in draft order
+    picks_made: int = 0  # how many tasks have been claimed so far
     trick_in_progress: dict[int, Card] = field(default_factory=dict)
     trick_number: int = 1
     history: list[TrickRecord] = field(default_factory=list)
@@ -86,15 +95,39 @@ class GameState:
     def player_to_act(self) -> int | None:
         if self.outcome is not None:
             return None
+        if self.phase == "task_draft":
+            if not self.available_tasks:
+                return None
+            # draft order starts at the commander and wraps around the
+            # table as many times as needed to exhaust the drawn tasks
+            return (self.current_leader + self.picks_made) % self.num_players
         for p in self._play_order:
             if p not in self.trick_in_progress:
                 return p
         return None
 
+    def draft_task(self, player: int, task_id: str) -> Task:
+        if self.phase != "task_draft":
+            raise ValueError("Not in the task-draft phase")
+        if player != self.player_to_act:
+            raise ValueError(f"It is not player {player}'s turn to draft a task")
+        match = next((t for t in self.available_tasks if t.id == task_id), None)
+        if match is None:
+            raise ValueError(f"Task {task_id} is not available to draft")
+        self.available_tasks.remove(match)
+        match.owner = player
+        self.tasks.append(match)
+        self.picks_made += 1
+        if not self.available_tasks:
+            self.phase = "playing"
+        return match
+
     def legal_cards_for(self, player: int) -> list[Card]:
         return legal_moves(self.hands[player], self.led_suit)
 
     def play_card(self, player: int, card: Card) -> TrickRecord | None:
+        if self.phase != "playing":
+            raise ValueError("Task draft is not finished yet")
         if self.outcome is not None:
             raise ValueError("Game already finished")
         if player != self.player_to_act:
@@ -162,12 +195,12 @@ def new_game(
     hands = deal(num_players, rng)
     hand_size = len(hands[0])
     commander = find_commander(hands)
-    tasks = build_mission(num_players, hand_size, difficulty_budget, hands=hands, rng=rng)
+    available_tasks = draw_tasks(num_players, hand_size, difficulty_budget, hands=hands, rng=rng)
     comms = CommunicationBoard(num_players)
     return GameState(
         num_players=num_players,
         hands=hands,
-        tasks=tasks,
+        available_tasks=available_tasks,
         comms=comms,
         current_leader=commander,
         hand_size=hand_size,

@@ -46,12 +46,24 @@ class HumanPlayer(Player):
                 continue
             return card
 
+    def choose_task(self, state: GameState, seat: int) -> str:
+        print("\nAvailable tasks:")
+        for t in state.available_tasks:
+            print(f"  [{t.id}] (difficulty {t.difficulty}) {t.describe()}")
+        valid_ids = {t.id for t in state.available_tasks}
+        while True:
+            raw = input("Draft which task (enter its id, e.g. task-0): ").strip()
+            if raw not in valid_ids:
+                print("Not an available task id, try again.")
+                continue
+            return raw
+
 
 def print_tasks(state: GameState) -> None:
     print("\nMission tasks:")
     for t in state.tasks:
         status = "PENDING" if not t.resolved else ("OK" if t.success else "FAILED")
-        print(f"  [{status}] {t.describe()}")
+        print(f"  [{status}] {t.describe_assigned()}")
 
 
 def run(num_players: int, difficulty: int, seed: int | None) -> None:
@@ -62,6 +74,15 @@ def run(num_players: int, difficulty: int, seed: int | None) -> None:
     ]
 
     print("=== Deep Sea Crew (placeholder ruleset - see docs/PLAN.md) ===")
+
+    print(f"\n--- Task draft (starting with the commander, P{state.current_leader}) ---")
+    while state.phase == "task_draft":
+        seat = state.player_to_act
+        player = players[seat]
+        task_id = player.choose_task(state, seat)
+        task = state.draft_task(seat, task_id)
+        print(f"P{seat} ({player.name}) drafts [{task.id}]: {task.describe()}")
+
     print_tasks(state)
 
     while state.outcome is None:

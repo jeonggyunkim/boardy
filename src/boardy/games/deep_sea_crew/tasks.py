@@ -47,8 +47,8 @@ _SUIT_KO = {
 @dataclass
 class Task:
     id: str
-    owner: int  # player index this task is assigned to
     kind: TaskKind
+    owner: int | None = None  # player index this task is assigned to; None until drafted
     params: dict[str, Any] = field(default_factory=dict)
     order_index: int | None = None  # for tasks that must complete in a stated sequence
     difficulty: int = 1
@@ -125,17 +125,38 @@ class Task:
         self.success = success
 
     def describe(self) -> str:
+        """Task text without an owner prefix -- used for the draft pool,
+        where a task doesn't belong to anyone yet."""
         p = self.params
-        text = {
-            TaskKind.WIN_CARD: f"P{self.owner}: {p.get('card')} 카드가 포함된 트릭을 획득해야 함",
-            TaskKind.WIN_TRICK_NUMBER: f"P{self.owner}: {p.get('n')}번째 트릭을 획득해야 함",
-            TaskKind.WIN_EXACT_COUNT: f"P{self.owner}: 정확히 {p.get('n')}개의 트릭을 획득해야 함",
-            TaskKind.WIN_AT_LEAST: f"P{self.owner}: 최소 {p.get('n')}개의 트릭을 획득해야 함",
-            TaskKind.WIN_NO_TRICKS: f"P{self.owner}: 트릭을 하나도 획득하면 안 됨",
-            TaskKind.NEVER_WIN_COLOR: f"P{self.owner}: {_SUIT_KO.get(Suit(p.get('suit')), p.get('suit'))} 카드가 포함된 트릭을 획득하면 안 됨",
-            TaskKind.WIN_FIRST_TRICK: f"P{self.owner}: 첫 번째 트릭을 획득해야 함",
-            TaskKind.WIN_LAST_TRICK: f"P{self.owner}: 마지막 트릭을 획득해야 함",
-        }[self.kind]
+        kind = self.kind
+        # NOTE: deliberately if/elif, not a dict literal keyed by kind --
+        # a dict literal evaluates every branch's f-string up front (to
+        # build the dict) before picking one by key, so a branch that
+        # only makes sense for a different kind (e.g. Suit(p['suit'])
+        # when this task has no 'suit' param) would raise regardless of
+        # which kind self.kind actually is.
+        if kind == TaskKind.WIN_CARD:
+            return f"{p.get('card')} 카드가 포함된 트릭을 획득해야 함"
+        if kind == TaskKind.WIN_TRICK_NUMBER:
+            return f"{p.get('n')}번째 트릭을 획득해야 함"
+        if kind == TaskKind.WIN_EXACT_COUNT:
+            return f"정확히 {p.get('n')}개의 트릭을 획득해야 함"
+        if kind == TaskKind.WIN_AT_LEAST:
+            return f"최소 {p.get('n')}개의 트릭을 획득해야 함"
+        if kind == TaskKind.WIN_NO_TRICKS:
+            return "트릭을 하나도 획득하면 안 됨"
+        if kind == TaskKind.NEVER_WIN_COLOR:
+            suit = Suit(p.get("suit"))
+            return f"{_SUIT_KO.get(suit, suit.value)} 카드가 포함된 트릭을 획득하면 안 됨"
+        if kind == TaskKind.WIN_FIRST_TRICK:
+            return "첫 번째 트릭을 획득해야 함"
+        if kind == TaskKind.WIN_LAST_TRICK:
+            return "마지막 트릭을 획득해야 함"
+        raise ValueError(f"Unknown task kind: {kind}")
+
+    def describe_assigned(self) -> str:
+        """Task text with the owning player prefixed -- used once claimed."""
+        text = f"P{self.owner}: {self.describe()}"
         if self.order_index is not None:
             text += f" [순서 {self.order_index}]"
         return text

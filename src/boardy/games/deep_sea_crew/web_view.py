@@ -12,9 +12,14 @@ from .engine import GameState
 
 
 def serialize_seat(state: GameState, seat: int, players_meta: list[dict]) -> dict:
-    legal = [str(c) for c in state.legal_cards_for(seat)] if state.player_to_act == seat else []
+    is_my_turn = state.player_to_act == seat
+    if state.phase == "task_draft":
+        legal = [t.id for t in state.available_tasks] if is_my_turn else []
+    else:
+        legal = [str(c) for c in state.legal_cards_for(seat)] if is_my_turn else []
     return {
         "players": players_meta,
+        "phase": state.phase,
         "num_players": state.num_players,
         "hand": [str(c) for c in state.hands[seat]],
         "hand_sizes": [len(h) for h in state.hands],
@@ -25,11 +30,15 @@ def serialize_seat(state: GameState, seat: int, players_meta: list[dict]) -> dic
         "trick_number": state.trick_number,
         "hand_size": state.hand_size,
         "trick_in_progress": {p: str(c) for p, c in state.trick_in_progress.items()},
+        "available_tasks": [
+            {"id": t.id, "describe": t.describe(), "difficulty": t.difficulty}
+            for t in state.available_tasks
+        ],
         "tasks": [
             {
                 "id": t.id,
                 "owner": t.owner,
-                "describe": t.describe(),
+                "describe": t.describe_assigned(),
                 "resolved": t.resolved,
                 "success": t.success,
             }

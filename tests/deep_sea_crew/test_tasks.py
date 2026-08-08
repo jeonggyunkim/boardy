@@ -2,6 +2,25 @@ from boardy.games.deep_sea_crew.cards import Card, Suit
 from boardy.games.deep_sea_crew.tasks import Task, TaskKind, missions_completed
 
 
+def test_describe_does_not_choke_on_params_missing_from_other_kinds():
+    # describe() must not eagerly evaluate every kind's formatting (e.g.
+    # Suit(params['suit']) for a WIN_CARD task, which has no 'suit' param)
+    for kind, params in [
+        (TaskKind.WIN_CARD, {"card": "B7"}),
+        (TaskKind.WIN_TRICK_NUMBER, {"n": 3}),
+        (TaskKind.WIN_EXACT_COUNT, {"n": 2}),
+        (TaskKind.WIN_AT_LEAST, {"n": 2}),
+        (TaskKind.WIN_NO_TRICKS, {}),
+        (TaskKind.NEVER_WIN_COLOR, {"suit": "blue"}),
+        (TaskKind.WIN_FIRST_TRICK, {}),
+        (TaskKind.WIN_LAST_TRICK, {}),
+    ]:
+        t = Task(id="t1", kind=kind, params=params)
+        assert isinstance(t.describe(), str) and t.describe()
+        t.owner = 0
+        assert isinstance(t.describe_assigned(), str) and t.describe_assigned()
+
+
 def test_win_card_success():
     t = Task(id="t1", owner=0, kind=TaskKind.WIN_CARD, params={"card": "B7"})
     t.check_after_trick(1, {0: Card(Suit.BLUE, 7), 1: Card(Suit.BLUE, 3)}, winner=0,

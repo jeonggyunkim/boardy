@@ -17,6 +17,10 @@ from .players import NetPlayer, Player, RandomPlayer
 
 def play_game(players: list[Player], num_players: int, difficulty: int, seed: int) -> bool:
     state = new_game(num_players, difficulty_budget=difficulty, seed=seed)
+    while state.phase == "task_draft":
+        seat = state.player_to_act
+        task_id = players[seat].choose_task(state, seat)
+        state.draft_task(seat, task_id)
     while state.outcome is None:
         seat = state.player_to_act
         card = players[seat].choose_card(state, seat)

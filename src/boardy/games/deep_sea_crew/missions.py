@@ -1,6 +1,8 @@
-"""Builds a concrete mission (list of Task) from data/tasks.json templates.
+"""Draws a mission's worth of task cards from data/tasks.json templates.
 
-See docs/PLAN.md — the templates are placeholders, not the real 96 cards.
+These come back *unassigned* (owner=None) -- see engine.py's task-draft
+phase for how they get claimed by players. See docs/PLAN.md — the
+templates are placeholders, not the real 96 cards.
 """
 
 from __future__ import annotations
@@ -36,20 +38,20 @@ def _resolve_card_param(token: str, taken: set[Card], rng: random.Random) -> Car
     raise RuntimeError(f"Could not find unused card for token {token}")
 
 
-def build_mission(
+def draw_tasks(
     num_players: int,
     hand_size: int,
     difficulty_budget: int,
     hands: list[list[Card]] | None = None,
     rng: random.Random | None = None,
 ) -> list[Task]:
-    """Pick templates whose difficulty sums close to difficulty_budget and
-    assign them to random players, instantiating any random params.
+    """Pick templates whose difficulty sums close to difficulty_budget,
+    instantiate any random params, and return them unassigned (owner=None)
+    -- players draft them one at a time (see GameState's task-draft phase),
+    not a random assignment.
 
     If `hands` is given, win_card tasks are only assigned cards that were
-    actually dealt to someone (so the task is achievable), and preferably
-    assigned to a *different* player than the one holding the card (mirrors
-    the physical game, where you don't know who holds what).
+    actually dealt to someone (so the task is achievable).
     """
     rng = rng or random.Random()
     templates = load_templates()
@@ -67,7 +69,6 @@ def build_mission(
     dealt_cards = [c for h in (hands or []) for c in h]
     tasks: list[Task] = []
     for i, tmpl in enumerate(chosen):
-        owner = rng.randrange(num_players)
         params = dict(tmpl["params"])
         kind = TaskKind(tmpl["kind"])
         if kind == TaskKind.WIN_CARD:
@@ -83,7 +84,5 @@ def build_mission(
             params["card"] = str(card)
         elif kind == TaskKind.WIN_TRICK_NUMBER and params.get("n") == "LAST":
             params["n"] = hand_size
-        tasks.append(
-            Task(id=f"task-{i}", owner=owner, kind=kind, params=params, difficulty=tmpl["difficulty"])
-        )
+        tasks.append(Task(id=f"task-{i}", kind=kind, params=params, difficulty=tmpl["difficulty"]))
     return tasks
