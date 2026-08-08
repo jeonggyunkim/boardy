@@ -106,9 +106,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .draft-task.pickable:hover { background: #1c3a4f; }
 .draft-task .diff { color: #8ab; font-size: 0.75rem; margin-right: 0.4rem; }
 
-.trick-card-wrap {
-  display: inline-block; transition: transform 0.75s cubic-bezier(.4, 0, .2, 1), opacity 0.75s ease-in;
-}
+.trick-card-wrap { display: inline-block; }
 .trick-card-wrap.winner .card { border-color: #ffd54a; }
 
 #postGameControls { margin-top: 1rem; }

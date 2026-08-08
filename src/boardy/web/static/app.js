@@ -2,10 +2,10 @@ let ws = null;
 let mySeat = null;
 let lastState = null;
 let games = [];
-// Which trick number the fly-to-pile animation has already played for, so
-// re-renders triggered by unrelated events (e.g. a communicate click) don't
-// replay it (see flyCardsToPile / renderDeepSeaCrew).
-let animatedTrickNumber = null;
+// Trick number whose table display was cleared by clicking "다음", so it
+// stays cleared across re-renders until the next trick actually starts
+// (see renderDeepSeaCrew / the nextTrickBtn handler).
+let acknowledgedTrick = null;
 
 const suitClass = (code) => ({ Y: "yellow", P: "pink", G: "green", B: "blue", S: "submarine" }[code[0]] || "");
 
@@ -117,7 +117,7 @@ function handleMessage(msg) {
   }
   if (msg.type === "joined") {
     mySeat = msg.seat;
-    animatedTrickNumber = null;
+    acknowledgedTrick = null;
     hide("landing");
     hide("seatPicker");
     show("lobby");
@@ -206,27 +206,6 @@ function trickCardSpan(seat, code, isWinner = false) {
   wrap.appendChild(label);
   wrap.appendChild(cardEl(code, { clickable: false }));
   return wrap;
-}
-
-// Animates trick-card-wrap elements sliding into the winner's pile and
-// fading out. Relies on #playerBoards already being rendered (for
-// pile-N's position) before this is called.
-function flyCardsToPile(cardEls, winnerSeat) {
-  const pileEl = document.getElementById(`pile-${winnerSeat}`);
-  if (!pileEl || !cardEls.length) return;
-  const pileRect = pileEl.getBoundingClientRect();
-  // A timer (not requestAnimationFrame) so the transition still fires even
-  // if the tab is backgrounded/unfocused when a trick resolves -- rAF only
-  // runs while the page is actually compositing frames.
-  setTimeout(() => {
-    cardEls.forEach((wrap) => {
-      const rect = wrap.getBoundingClientRect();
-      const dx = pileRect.left + pileRect.width / 2 - (rect.left + rect.width / 2);
-      const dy = pileRect.top + pileRect.height / 2 - (rect.top + rect.height / 2);
-      wrap.style.transform = `translate(${dx}px, ${dy}px) scale(0.35)`;
-      wrap.style.opacity = "0";
-    });
-  }, 20);
 }
 
 function renderPlayerBoards(s) {
@@ -352,38 +331,32 @@ function renderDeepSeaCrew(s) {
     for (const [seat, code] of Object.entries(s.trick_in_progress)) {
       table.appendChild(trickCardSpan(seat, code));
     }
-  } else if (lastTrick) {
+  } else if (lastTrick && lastTrick.number !== acknowledgedTrick) {
     // trick_in_progress clears the instant the last card is played, so
     // without this the whole table would blink empty before anyone can
     // see what was played -- keep showing the just-finished trick until
-    // the next one starts filling up, then slide the cards into the
-    // winner's pile so it reads as "the trick moved there" rather than
-    // just a number ticking up.
+    // "다음" is clicked (see the nextTrickBtn handler, which clears it).
     const heading = document.createElement("b");
     heading.textContent = `트릭 #${lastTrick.number} - P${lastTrick.winner} 승리!`;
     table.appendChild(heading);
     table.appendChild(document.createElement("br"));
-    const cardEls = [];
     for (const [seat, code] of Object.entries(lastTrick.cards)) {
-      const wrap = trickCardSpan(seat, code, seat == lastTrick.winner);
-      table.appendChild(wrap);
-      cardEls.push(wrap);
-    }
-    // Only animate once, and only once "다음" has actually been
-    // acknowledged (awaiting_next false) -- otherwise the cards would fade
-    // away while the player is still supposed to be reviewing the trick,
-    // and every unrelated re-render (e.g. a communicate click) while still
-    // reviewing would replay the animation from scratch.
-    if (!s.awaiting_next && animatedTrickNumber !== lastTrick.number) {
-      animatedTrickNumber = lastTrick.number;
-      flyCardsToPile(cardEls, lastTrick.winner);
+      table.appendChild(trickCardSpan(seat, code, seat == lastTrick.winner));
     }
   } else {
     table.innerHTML = `<b>트릭 #${s.trick_number}</b>`;
   }
 
   el("nextTrickBtn").classList.toggle("hidden", !s.awaiting_next);
-  el("nextTrickBtn").onclick = () => ws.send(JSON.stringify({ type: "next" }));
+  el("nextTrickBtn").onclick = () => {
+    // Clear the just-finished trick immediately instead of leaving it
+    // displayed until the next broadcast arrives -- "다음" should mean
+    // "done reviewing this", not linger until something else happens to
+    // redraw the table.
+    if (lastTrick) acknowledgedTrick = lastTrick.number;
+    table.innerHTML = `<b>트릭 #${s.trick_number}</b>`;
+    ws.send(JSON.stringify({ type: "next" }));
+  };
 
   // gated by awaiting_next too: the trick that just finished must be
   // acknowledged via "다음" before anyone (including the next leader) can act
