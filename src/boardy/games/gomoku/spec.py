@@ -48,7 +48,7 @@ def _play(board: Board, seat: int, action: str) -> None:
 SPEC = GameSpec(
     slug="gomoku",
     name="Gomoku",
-    description="오목 (5목) — 9x9 보드, 5개 연속이면 승리. 진짜 2인 제로섬 완전정보 게임이라 표준 AlphaZero 학습이 그대로 적용됨.",
+    description="오목 (5목) — 15x15 보드, 렌주룰, 5개 연속이면 승리. 진짜 2인 제로섬 완전정보 게임이라 표준 AlphaZero 학습이 그대로 적용됨.",
     min_players=2,
     max_players=2,
     new_game=new_game,

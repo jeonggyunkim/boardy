@@ -121,7 +121,7 @@ class GameState:
 
         for task in self.tasks:
             task.check_after_trick(
-                self.trick_number, self.trick_in_progress, winner, self.wins_per_player, is_final
+                self.trick_number, self.trick_in_progress, winner, self.wins_per_player, is_final, self.hand_size
             )
 
         record = TrickRecord(
@@ -146,6 +146,8 @@ class GameState:
         return record
 
     def communicate(self, player: int, card: Card) -> Signal:
+        if self.trick_in_progress:
+            raise ValueError("Communication is only allowed before a trick starts")
         return self.comms.communicate(player, card, self.hands[player])
 
 

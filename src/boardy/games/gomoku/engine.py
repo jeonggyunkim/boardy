@@ -4,10 +4,7 @@ of the package (seat 0 = BLACK, moves first; seat 1 = WHITE).
 
 from __future__ import annotations
 
-from .board import BLACK, WHITE, Board
-
-DEFAULT_SIZE = 9
-DEFAULT_WIN_LENGTH = 5
+from .board import BLACK, DEFAULT_SIZE, DEFAULT_WIN_LENGTH, WHITE, Board
 
 
 def new_game(num_players: int = 2, difficulty: int = 0, seed: int | None = None) -> Board:

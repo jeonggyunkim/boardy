@@ -7,10 +7,12 @@ data/tasks.json. Replace that file with the real 96 tasks (same schema)
 once available — no engine code should need to change.
 
 Each task is assigned to a specific player and must be resolved (True/False)
-by the time the mission ends. Some task kinds resolve immediately when their
-condition becomes impossible (e.g. "never win a trick with a blue card" fails
-the instant such a trick is won), others only resolve at the end of the hand
-(e.g. "win exactly 3 tricks").
+by the time the mission ends. Most task kinds resolve immediately once
+their condition is met or becomes impossible -- e.g. "never win a trick
+with a blue card" fails the instant such a trick is won, and "win exactly
+3 tricks" fails as soon as either a 4th trick is won or too few tricks
+remain in the hand for 3 to still be reachable -- rather than waiting
+until the last trick to find out.
 """
 
 from __future__ import annotations
@@ -33,6 +35,15 @@ class TaskKind(str, Enum):
     WIN_LAST_TRICK = "win_last_trick"
 
 
+_SUIT_KO = {
+    Suit.YELLOW: "노랑",
+    Suit.PINK: "분홍",
+    Suit.GREEN: "초록",
+    Suit.BLUE: "파랑",
+    Suit.SUBMARINE: "잠수함",
+}
+
+
 @dataclass
 class Task:
     id: str
@@ -51,6 +62,7 @@ class Task:
         winner: int,
         wins_per_player: dict[int, int],
         is_final_trick: bool,
+        hand_size: int,
     ) -> None:
         """Update resolution state after a trick completes."""
         if self.resolved:
@@ -75,17 +87,25 @@ class Task:
                 self._resolve(False)
             elif is_final_trick:
                 self._resolve(True)
-        elif kind in (TaskKind.WIN_EXACT_COUNT, TaskKind.WIN_AT_LEAST, TaskKind.WIN_LAST_TRICK):
+        elif kind == TaskKind.WIN_LAST_TRICK:
             if is_final_trick:
-                self._finalize(wins_per_player, winner, trick_number)
-
-    def _finalize(self, wins_per_player: dict[int, int], winner: int, trick_number: int) -> None:
-        if self.kind == TaskKind.WIN_EXACT_COUNT:
-            self._resolve(wins_per_player.get(self.owner, 0) == self.params["n"])
-        elif self.kind == TaskKind.WIN_AT_LEAST:
-            self._resolve(wins_per_player.get(self.owner, 0) >= self.params["n"])
-        elif self.kind == TaskKind.WIN_LAST_TRICK:
-            self._resolve(winner == self.owner)
+                self._resolve(winner == self.owner)
+        elif kind in (TaskKind.WIN_EXACT_COUNT, TaskKind.WIN_AT_LEAST):
+            wins = wins_per_player.get(self.owner, 0)
+            remaining = hand_size - trick_number
+            n = self.params["n"]
+            if kind == TaskKind.WIN_EXACT_COUNT:
+                # fail as soon as N is exceeded, or as soon as too few
+                # tricks remain in the hand for N to still be reachable
+                if wins > n or wins + remaining < n:
+                    self._resolve(False)
+                elif is_final_trick:
+                    self._resolve(wins == n)
+            else:
+                if wins + remaining < n:
+                    self._resolve(False)
+                elif is_final_trick:
+                    self._resolve(wins >= n)
 
     def force_resolve_if_unresolved_at_end(self, wins_per_player: dict[int, int]) -> None:
         if self.resolved:
@@ -107,17 +127,17 @@ class Task:
     def describe(self) -> str:
         p = self.params
         text = {
-            TaskKind.WIN_CARD: f"Player {self.owner} must win the trick containing {p.get('card')}",
-            TaskKind.WIN_TRICK_NUMBER: f"Player {self.owner} must win trick #{p.get('n')}",
-            TaskKind.WIN_EXACT_COUNT: f"Player {self.owner} must win exactly {p.get('n')} tricks",
-            TaskKind.WIN_AT_LEAST: f"Player {self.owner} must win at least {p.get('n')} tricks",
-            TaskKind.WIN_NO_TRICKS: f"Player {self.owner} must win no tricks",
-            TaskKind.NEVER_WIN_COLOR: f"Player {self.owner} must never win a trick containing {p.get('suit')}",
-            TaskKind.WIN_FIRST_TRICK: f"Player {self.owner} must win the first trick",
-            TaskKind.WIN_LAST_TRICK: f"Player {self.owner} must win the last trick",
+            TaskKind.WIN_CARD: f"P{self.owner}: {p.get('card')} 카드가 포함된 트릭을 획득해야 함",
+            TaskKind.WIN_TRICK_NUMBER: f"P{self.owner}: {p.get('n')}번째 트릭을 획득해야 함",
+            TaskKind.WIN_EXACT_COUNT: f"P{self.owner}: 정확히 {p.get('n')}개의 트릭을 획득해야 함",
+            TaskKind.WIN_AT_LEAST: f"P{self.owner}: 최소 {p.get('n')}개의 트릭을 획득해야 함",
+            TaskKind.WIN_NO_TRICKS: f"P{self.owner}: 트릭을 하나도 획득하면 안 됨",
+            TaskKind.NEVER_WIN_COLOR: f"P{self.owner}: {_SUIT_KO.get(Suit(p.get('suit')), p.get('suit'))} 카드가 포함된 트릭을 획득하면 안 됨",
+            TaskKind.WIN_FIRST_TRICK: f"P{self.owner}: 첫 번째 트릭을 획득해야 함",
+            TaskKind.WIN_LAST_TRICK: f"P{self.owner}: 마지막 트릭을 획득해야 함",
         }[self.kind]
         if self.order_index is not None:
-            text += f" [order {self.order_index}]"
+            text += f" [순서 {self.order_index}]"
         return text
 
 

@@ -44,6 +44,34 @@ def test_cannot_play_out_of_turn():
         pass
 
 
+def test_can_communicate_before_trick_starts():
+    state = make_bare_state()
+    state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7)], [Card(Suit.GREEN, 2)]]
+    signal = state.communicate(0, Card(Suit.GREEN, 4))
+    assert signal.card == Card(Suit.GREEN, 4)
+
+
+def test_cannot_communicate_once_trick_in_progress():
+    state = make_bare_state()
+    state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7)], [Card(Suit.GREEN, 2)]]
+    state.play_card(0, Card(Suit.BLUE, 3))
+    try:
+        state.communicate(1, Card(Suit.BLUE, 7))
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_can_communicate_again_once_next_trick_starts():
+    state = make_bare_state(num_players=3, hand_size=2)
+    state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7), Card(Suit.GREEN, 1)], [Card(Suit.GREEN, 2), Card(Suit.BLUE, 1)]]
+    state.play_card(0, Card(Suit.BLUE, 3))
+    state.play_card(1, Card(Suit.BLUE, 7))
+    state.play_card(2, Card(Suit.BLUE, 1))  # must follow blue; completes the trick, trick_in_progress resets
+    signal = state.communicate(0, Card(Suit.GREEN, 4))
+    assert signal.card == Card(Suit.GREEN, 4)
+
+
 def test_full_random_game_terminates_with_outcome():
     for seed in range(20):
         state = new_game(num_players=3, difficulty_budget=6, seed=seed)

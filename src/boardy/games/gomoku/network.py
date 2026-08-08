@@ -1,9 +1,9 @@
 """AlphaZero-style CNN policy/value network for Gomoku.
 
-Small on purpose (CPU training, 9x9 board): 3 conv blocks shared trunk,
-then separate policy (per-cell logits) and value (tanh, current-player
-perspective — this is a real zero-sum game so value is win-probability-like
-in [-1, 1], unlike Deep Sea Crew's cooperative [0, 1] success probability).
+Small on purpose (CPU training): 3 conv blocks shared trunk, then separate
+policy (per-cell logits) and value (tanh, current-player perspective —
+this is a real zero-sum game so value is win-probability-like in [-1, 1],
+unlike Deep Sea Crew's cooperative [0, 1] success probability).
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from torch import nn
 
-from .board import Board
+from .board import DEFAULT_SIZE, Board
 from .encoding import NUM_PLANES, encode_board, legal_action_mask
 
 
@@ -27,7 +27,7 @@ class ConvBlock(nn.Module):
 
 
 class PolicyValueNet(nn.Module):
-    def __init__(self, board_size: int = 9, channels: int = 64, in_planes: int = NUM_PLANES) -> None:
+    def __init__(self, board_size: int = DEFAULT_SIZE, channels: int = 64, in_planes: int = NUM_PLANES) -> None:
         super().__init__()
         self.board_size = board_size
         n_cells = board_size * board_size

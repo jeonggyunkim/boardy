@@ -1,12 +1,14 @@
 """Sonar-token communication mechanic.
 
-ASSUMPTION (unverified, see docs/PLAN.md): once per game, on their turn
-before playing, a player may reveal one card from their hand face-up and
-mark it with a Sonar token indicating it is the HIGHEST, LOWEST, or ONLY
-card of that suit in their hand. The card stays visible (but still in
-hand, still playable) until it is played. Some missions may disable or
-grant extra communications (Currents / Rapture of the Deep) — not yet
-modelled, tracked as a TODO for when real task text is available.
+ASSUMPTION (unverified, see docs/PLAN.md): once per game, a player may
+reveal one card from their hand face-up and mark it with a Sonar token
+indicating it is the HIGHEST, LOWEST, or ONLY card of that suit in their
+hand. Only allowed before a trick starts (see GameState.communicate) --
+once the first card of a trick has been played, no one may communicate
+until that trick resolves and the next one begins. The card stays visible
+(but still in hand, still playable) until it is played. Some missions may
+disable or grant extra communications (Currents / Rapture of the Deep) —
+not yet modelled, tracked as a TODO for when real task text is available.
 """
 
 from __future__ import annotations

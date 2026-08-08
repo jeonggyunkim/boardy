@@ -1,12 +1,11 @@
 """Gomoku (five-in-a-row) board and rules.
 
-Default board is 9x9 with Renju rules (see renju.py): Black may not play a
+Standard 15x15 board with Renju rules (see renju.py): Black may not play a
 double-three, double-four, or overline (unless the same move also
 completes an exact five, which always wins); White is unrestricted and
 wins with five-or-more. Board size and win length are parameters, and
 Renju enforcement can be turned off (`renju=False`) for a plain freestyle
-variant if ever needed (e.g. quick tests). 9x9 instead of full
-15x15/19x19 so self-play training actually finishes on CPU.
+variant if ever needed (e.g. quick tests).
 """
 
 from __future__ import annotations
@@ -18,13 +17,16 @@ from . import renju
 BLACK = 1
 WHITE = -1
 
+DEFAULT_SIZE = 15
+DEFAULT_WIN_LENGTH = 5
+
 _DIRECTIONS = [(1, 0), (0, 1), (1, 1), (1, -1)]
 
 
 @dataclass
 class Board:
-    size: int = 9
-    win_length: int = 5
+    size: int = DEFAULT_SIZE
+    win_length: int = DEFAULT_WIN_LENGTH
     renju: bool = True
     cells: list[int] = field(default_factory=list)  # size*size, row-major; 0=empty
     to_move: int = BLACK
