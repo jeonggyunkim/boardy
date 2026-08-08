@@ -487,9 +487,11 @@ function renderGomokuBoard(s, isMyTurn) {
       const value = s.board[r * s.size + c];
       const key = `${r},${c}`;
       const legal = isMyTurn && legalSet.has(key);
+      // legal implies it's my turn, so s.my_color is the acting player's
+      // color here -- highlight legal points in that color, not always white.
       const point = document.createElement("button");
       point.type = "button";
-      point.className = "gomoku-point" + (legal ? " legal" : "");
+      point.className = "gomoku-point" + (legal ? ` legal turn-${s.my_color}` : "");
       point.style.left = `${GOMOKU_MARGIN + c * GOMOKU_CELL}px`;
       point.style.top = `${GOMOKU_MARGIN + r * GOMOKU_CELL}px`;
       point.disabled = !legal;
