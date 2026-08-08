@@ -53,6 +53,16 @@ def _communicate(state: GameState, seat: int, action: str) -> None:
     state.communicate(seat, Card.parse(action))
 
 
+def _post_move_delay(state: GameState) -> float:
+    # trick_in_progress goes back to empty in the same instant a trick
+    # completes, so this is the signal a trick just resolved: pause the
+    # web AI-turn loop here for a moment so the just-finished trick is
+    # actually visible before the next card starts landing on the table.
+    if not state.trick_in_progress and state.history:
+        return 1.4
+    return 0.0
+
+
 SPEC = GameSpec(
     slug="deep_sea_crew",
     name="Deep Sea Crew",
@@ -72,6 +82,7 @@ SPEC = GameSpec(
     make_smart_player=_make_smart_player,
     communicate=_communicate,
     cli_main=_cli_main,
+    post_move_delay=_post_move_delay,
 )
 
 register(SPEC)

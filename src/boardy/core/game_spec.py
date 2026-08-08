@@ -70,3 +70,9 @@ class GameSpec:
     communicate: Callable[[Any, int, str], None] | None = None
     # Entry point for `python -m boardy.cli --game <slug> ...`
     cli_main: Callable[[], None] | None = None
+    # Optional: state -> seconds to pause the web AI-turn loop after this
+    # move before playing the next AI move. None/0 = no pause. Lets a game
+    # give observers a moment to actually see a just-resolved intermediate
+    # state (e.g. Deep Sea Crew pausing after a trick completes) instead of
+    # AI turns firing back-to-back with no gap between broadcasts.
+    post_move_delay: Callable[[Any], float] | None = None

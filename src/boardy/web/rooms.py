@@ -127,7 +127,15 @@ class Room:
             return
         self.spec.play(self.state, seat, action)
         await self.broadcast()
+        await self._pause_if_wanted()
         await self.run_ai_turns()
+
+    async def _pause_if_wanted(self) -> None:
+        if self.spec.post_move_delay is None:
+            return
+        delay = self.spec.post_move_delay(self.state)
+        if delay > 0:
+            await asyncio.sleep(delay)
 
     async def communicate(self, seat: int, action: str) -> None:
         assert self.state is not None
@@ -154,6 +162,7 @@ class Room:
             )
             self.spec.play(self.state, seat, action)
             await self.broadcast()
+            await self._pause_if_wanted()
 
 
 class RoomRegistry:

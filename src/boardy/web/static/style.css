@@ -24,7 +24,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .card.green { background: #2c8a4b; }
 .card.blue { background: #2662b0; }
 .card.submarine { background: #444; }
-#table, #handSizes, #signals, #taskList { margin: 0.6rem 0; }
+#table, #signals, #taskList { margin: 0.6rem 0; }
 .task { padding: 0.2rem 0; }
 .task.ok { color: #6f6; }
 .task.failed { color: #f66; text-decoration: line-through; }
@@ -59,3 +59,26 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .gomoku-point.last-move .stone::after {
   content: ""; position: absolute; inset: 35%; border-radius: 50%; background: #e33;
 }
+
+/* Deep Sea Crew: one board per player, with a face-down pile representing
+   tricks they've won (instead of a plain "N tricks" number). */
+#playerBoards { display: flex; gap: 1.4rem; flex-wrap: wrap; margin: 0.6rem 0 1.2rem; }
+.player-board { text-align: center; min-width: 3rem; }
+.player-board.to-act .player-name { color: #ffd54a; }
+.player-name { font-size: 0.78rem; margin-bottom: 0.4rem; white-space: nowrap; }
+.pile { position: relative; width: 2.4rem; height: 3.4rem; margin: 0 auto; }
+.pile-card {
+  position: absolute; inset: 0; border-radius: 6px; background: #2a4a63;
+  border: 1px solid #4b6a83; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+}
+.pile-empty {
+  position: absolute; inset: 0; border-radius: 6px; border: 1px dashed #355;
+}
+.pile-count { margin-top: 0.3rem; font-size: 0.75rem; color: #8ab; }
+
+.trick-card-wrap {
+  display: inline-block; transition: transform 0.75s cubic-bezier(.4, 0, .2, 1), opacity 0.75s ease-in;
+}
+.trick-card-wrap.winner .card { border-color: #ffd54a; }
+
+#postGameControls { margin-top: 1rem; }

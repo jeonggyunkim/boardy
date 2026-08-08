@@ -75,9 +75,32 @@ function handleMessage(msg) {
       hide("gomokuView");
       renderDeepSeaCrew(msg);
     }
+    // player_to_act is null exactly when a game has ended, for every game
+    // shape (see boardy.core.game_spec) -- generic "game over" signal.
+    if (msg.player_to_act === null) {
+      show("postGameControls");
+    } else {
+      hide("postGameControls");
+    }
     return;
   }
 }
+
+el("homeBtn").onclick = () => {
+  if (ws) {
+    ws.onclose = null;
+    ws.close();
+    ws = null;
+  }
+  lastState = null;
+  mySeat = null;
+  selectedForComm = null;
+  hide("game");
+  hide("lobby");
+  hide("postGameControls");
+  hide("outcomeBanner");
+  show("landing");
+};
 
 function renderLobby(msg) {
   hide("landing");
@@ -107,12 +130,75 @@ function cardEl(code, { clickable, selected } = {}) {
 
 function trickCardSpan(seat, code, isWinner = false) {
   const wrap = document.createElement("span");
+  wrap.className = "trick-card-wrap" + (isWinner ? " winner" : "");
   wrap.style.marginRight = "0.5rem";
   const label = document.createElement("small");
   label.textContent = `P${seat}${isWinner ? "★" : ""}: `;
   wrap.appendChild(label);
   wrap.appendChild(cardEl(code, { clickable: false }));
   return wrap;
+}
+
+// Animates trick-card-wrap elements sliding into the winner's pile and
+// fading out. Relies on #playerBoards already being rendered (for
+// pile-N's position) before this is called.
+function flyCardsToPile(cardEls, winnerSeat) {
+  const pileEl = document.getElementById(`pile-${winnerSeat}`);
+  if (!pileEl || !cardEls.length) return;
+  const pileRect = pileEl.getBoundingClientRect();
+  // A timer (not requestAnimationFrame) so the transition still fires even
+  // if the tab is backgrounded/unfocused when a trick resolves -- rAF only
+  // runs while the page is actually compositing frames.
+  setTimeout(() => {
+    cardEls.forEach((wrap) => {
+      const rect = wrap.getBoundingClientRect();
+      const dx = pileRect.left + pileRect.width / 2 - (rect.left + rect.width / 2);
+      const dy = pileRect.top + pileRect.height / 2 - (rect.top + rect.height / 2);
+      wrap.style.transform = `translate(${dx}px, ${dy}px) scale(0.35)`;
+      wrap.style.opacity = "0";
+    });
+  }, 20);
+}
+
+function renderPlayerBoards(s) {
+  const container = el("playerBoards");
+  container.innerHTML = "";
+  for (let i = 0; i < s.num_players; i++) {
+    const board = document.createElement("div");
+    board.className = "player-board" + (s.player_to_act === i ? " to-act" : "");
+
+    const name = document.createElement("div");
+    name.className = "player-name";
+    const meta = s.players[i] || {};
+    name.textContent = `P${i}${i === s.seat ? "(나)" : ""}${meta.name ? " " + meta.name : ""}`;
+    board.appendChild(name);
+
+    const pile = document.createElement("div");
+    pile.className = "pile";
+    pile.id = `pile-${i}`;
+    const count = s.tricks_won[i];
+    if (count === 0) {
+      const empty = document.createElement("div");
+      empty.className = "pile-empty";
+      pile.appendChild(empty);
+    } else {
+      const shown = Math.min(count, 5);
+      for (let k = 0; k < shown; k++) {
+        const card = document.createElement("div");
+        card.className = "pile-card";
+        card.style.transform = `translate(${k * 2}px, ${-k * 2}px)`;
+        pile.appendChild(card);
+      }
+    }
+    board.appendChild(pile);
+
+    const countLabel = document.createElement("div");
+    countLabel.className = "pile-count";
+    countLabel.textContent = `트릭 ${count}개`;
+    board.appendChild(countLabel);
+
+    container.appendChild(board);
+  }
 }
 
 function renderDeepSeaCrew(s) {
@@ -124,6 +210,8 @@ function renderDeepSeaCrew(s) {
   } else {
     hide("outcomeBanner");
   }
+
+  renderPlayerBoards(s);
 
   const taskDiv = el("taskList");
   taskDiv.innerHTML = "<b>과제</b><br>";
@@ -150,23 +238,23 @@ function renderDeepSeaCrew(s) {
     // trick_in_progress clears the instant the last card is played, so
     // without this the whole table would blink empty before anyone can
     // see what was played -- keep showing the just-finished trick until
-    // the next one starts filling up.
+    // the next one starts filling up, then slide the cards into the
+    // winner's pile so it reads as "the trick moved there" rather than
+    // just a number ticking up.
     const heading = document.createElement("b");
-    heading.textContent = `직전 트릭 #${lastTrick.number} (P${lastTrick.winner} 승)`;
+    heading.textContent = `트릭 #${lastTrick.number} - P${lastTrick.winner} 승리!`;
     table.appendChild(heading);
     table.appendChild(document.createElement("br"));
+    const cardEls = [];
     for (const [seat, code] of Object.entries(lastTrick.cards)) {
-      table.appendChild(trickCardSpan(seat, code, seat == lastTrick.winner));
+      const wrap = trickCardSpan(seat, code, seat == lastTrick.winner);
+      table.appendChild(wrap);
+      cardEls.push(wrap);
     }
+    flyCardsToPile(cardEls, lastTrick.winner);
   } else {
     table.innerHTML = `<b>트릭 #${s.trick_number}</b>`;
   }
-
-  el("handSizes").innerHTML =
-    "<b>남은 카드 수</b>: " +
-    s.hand_sizes.map((n, i) => `P${i}${i === s.seat ? "(나)" : ""}:${n}`).join("  ") +
-    "<br><b>획득한 트릭</b>: " +
-    s.tricks_won.map((n, i) => `P${i}${i === s.seat ? "(나)" : ""}:${n}`).join("  ");
 
   const sigDiv = el("signals");
   const sigEntries = Object.entries(s.signals);
