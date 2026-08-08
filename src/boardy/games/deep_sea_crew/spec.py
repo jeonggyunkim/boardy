@@ -26,6 +26,10 @@ class _StrPlayerAdapter:
             return self._inner.choose_task(state, seat)
         return str(self._inner.choose_card(state, seat))
 
+    def choose_communication(self, state: GameState, seat: int) -> str | None:
+        card = self._inner.choose_communication(state, seat)
+        return str(card) if card is not None else None
+
 
 def _make_random_player(name: str) -> _StrPlayerAdapter:
     return _StrPlayerAdapter(RandomPlayer(name=name))
@@ -62,6 +66,10 @@ def _communicate(state: GameState, seat: int, action: str) -> None:
     state.communicate(seat, Card.parse(action))
 
 
+def _ai_communicate(state: GameState, seat: int, player: _StrPlayerAdapter) -> str | None:
+    return player.choose_communication(state, seat)
+
+
 def _post_move_delay(state: GameState) -> float:
     # trick_in_progress goes back to empty in the same instant a trick
     # completes, so this is the signal a trick just resolved: pause the
@@ -92,6 +100,8 @@ SPEC = GameSpec(
     communicate=_communicate,
     cli_main=_cli_main,
     post_move_delay=_post_move_delay,
+    communicable_seats=lambda state: state.communicable_seats(),
+    ai_communicate=_ai_communicate,
 )
 
 register(SPEC)

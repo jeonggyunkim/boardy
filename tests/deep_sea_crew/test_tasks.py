@@ -97,13 +97,14 @@ def test_win_at_least_fails_early_when_unreachable():
     assert t.resolved and not t.success
 
 
-def test_win_at_least_succeeds_once_guaranteed_reachable_but_only_resolves_at_end():
+def test_win_at_least_succeeds_immediately_once_reached():
     t = Task(id="t1", owner=0, kind=TaskKind.WIN_AT_LEAST, params={"n": 2})
-    # owner already has 2, still not the final trick -- stays pending (only fails early,
-    # success is still only confirmed at the final trick, same as other count-based tasks)
+    # owner already has 2 -- unlike exact-count, winning more tricks later
+    # can't un-succeed "at least 2", so this resolves right away rather
+    # than waiting for the final trick
     t.check_after_trick(4, {0: Card(Suit.GREEN, 3), 1: Card(Suit.GREEN, 5)}, winner=0,
                          wins_per_player={0: 2}, is_final_trick=False, hand_size=10)
-    assert not t.resolved
+    assert t.resolved and t.success
 
 
 def test_missions_completed_none_while_pending():

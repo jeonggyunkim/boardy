@@ -48,8 +48,28 @@ def test_cannot_play_out_of_turn():
 def test_can_communicate_before_trick_starts():
     state = make_bare_state()
     state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7)], [Card(Suit.GREEN, 2)]]
-    signal = state.communicate(0, Card(Suit.GREEN, 4))
-    assert signal.card == Card(Suit.GREEN, 4)
+    # player 0 is the leader (make_bare_state default) and leaders can't
+    # communicate (see test_leader_cannot_communicate below) -- use player 1
+    signal = state.communicate(1, Card(Suit.BLUE, 7))
+    assert signal.card == Card(Suit.BLUE, 7)
+
+
+def test_leader_cannot_communicate():
+    state = make_bare_state()
+    state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7)], [Card(Suit.GREEN, 2)]]
+    try:
+        state.communicate(0, Card(Suit.GREEN, 4))
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_communicable_seats_excludes_leader_and_stops_once_trick_starts():
+    state = make_bare_state()
+    state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7)], [Card(Suit.GREEN, 2)]]
+    assert state.communicable_seats() == [1, 2]
+    state.play_card(0, Card(Suit.BLUE, 3))
+    assert state.communicable_seats() == []
 
 
 def test_cannot_communicate_once_trick_in_progress():

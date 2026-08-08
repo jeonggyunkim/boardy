@@ -6,6 +6,7 @@ import random
 from abc import ABC, abstractmethod
 
 from .cards import Card
+from .communication import valid_marker
 from .engine import GameState
 
 
@@ -21,8 +22,22 @@ class Player(ABC):
         ...
 
     def choose_communication(self, state: GameState, seat: int) -> Card | None:
-        """Return a card to signal this turn, or None to skip."""
+        """Return a card to signal this turn, or None to skip. Only ever
+        called while `seat` is actually allowed to communicate (see
+        GameState.communicable_seats) -- implementations don't need to
+        re-check phase/timing/leader themselves."""
         return None
+
+
+def _random_signal_choice(state: GameState, seat: int, rng: random.Random) -> Card | None:
+    """Shared placeholder strategy (no learned/scripted comm strategy
+    exists yet, same simplification as random task-drafting): about half
+    the time, reveal a random truthfully-markable card."""
+    hand = state.hands[seat]
+    candidates = [c for c in hand if valid_marker(c, hand)]
+    if not candidates or rng.random() > 0.5:
+        return None
+    return rng.choice(candidates)
 
 
 class RandomPlayer(Player):
@@ -35,6 +50,9 @@ class RandomPlayer(Player):
 
     def choose_task(self, state: GameState, seat: int) -> str:
         return self.rng.choice(state.available_tasks).id
+
+    def choose_communication(self, state: GameState, seat: int) -> Card | None:
+        return _random_signal_choice(state, seat, self.rng)
 
 
 class NetPlayer(Player):
@@ -84,3 +102,7 @@ class NetPlayer(Player):
         # extended to cover task-choice actions, not just card play) -- picks
         # randomly among the drawn tasks, same as RandomPlayer.
         return self.rng.choice(state.available_tasks).id
+
+    def choose_communication(self, state: GameState, seat: int) -> Card | None:
+        # No learned communication strategy yet -- same simplification.
+        return _random_signal_choice(state, seat, self.rng)

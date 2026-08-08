@@ -58,6 +58,6 @@ def serialize_seat(state: GameState, seat: int, players_meta: list[dict]) -> dic
             p: {"card": str(sig.card), "marker": sig.marker.value}
             for p, sig in state.comms.signals.items()
         },
-        "can_communicate": state.comms.can_communicate(seat) and not state.trick_in_progress,
+        "can_communicate": seat in state.communicable_seats(),
         "outcome": state.outcome,
     }

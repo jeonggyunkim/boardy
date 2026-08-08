@@ -22,6 +22,11 @@ def play_game(players: list[Player], num_players: int, difficulty: int, seed: in
         task_id = players[seat].choose_task(state, seat)
         state.draft_task(seat, task_id)
     while state.outcome is None:
+        for other in state.communicable_seats():
+            card = players[other].choose_communication(state, other)
+            if card is not None:
+                state.communicate(other, card)
+
         seat = state.player_to_act
         card = players[seat].choose_card(state, seat)
         state.play_card(seat, card)

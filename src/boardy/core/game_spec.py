@@ -76,3 +76,16 @@ class GameSpec:
     # state (e.g. Deep Sea Crew pausing after a trick completes) instead of
     # AI turns firing back-to-back with no gap between broadcasts.
     post_move_delay: Callable[[Any], float] | None = None
+    # Optional, only meaningful alongside `communicate`: state -> seat
+    # indices currently allowed to use the secondary communicate channel
+    # right now (e.g. Deep Sea Crew: everyone but the trick leader, only
+    # before the trick's first card is played). Lets the web layer give
+    # AI-controlled seats the same chance a human would get, instead of AI
+    # seats silently never using the mechanic. None if the game has no
+    # such mechanic.
+    communicable_seats: Callable[[Any], list[int]] | None = None
+    # Optional, only meaningful alongside `communicable_seats`: state, seat,
+    # that seat's AI Player -> an action string to feed into `communicate`,
+    # or None to skip. Only ever called for seats `communicable_seats`
+    # returned.
+    ai_communicate: Callable[[Any, int, Player], str | None] | None = None

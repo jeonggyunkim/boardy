@@ -102,7 +102,11 @@ class Task:
                 elif is_final_trick:
                     self._resolve(wins == n)
             else:
-                if wins + remaining < n:
+                # succeed as soon as N is reached -- unlike exact-count,
+                # winning more tricks afterwards can't un-succeed "at least N"
+                if wins >= n:
+                    self._resolve(True)
+                elif wins + remaining < n:
                     self._resolve(False)
                 elif is_final_trick:
                     self._resolve(wins >= n)

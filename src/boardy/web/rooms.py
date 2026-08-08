@@ -191,11 +191,31 @@ class Room:
             return
         await self.broadcast()
 
+    async def _maybe_ai_communicate(self) -> None:
+        """Give AI-controlled seats the same shot at the game's secondary
+        `communicate` channel a human would get, instead of AI seats
+        silently never using it (see GameSpec.communicable_seats)."""
+        if self.spec.communicable_seats is None or self.spec.ai_communicate is None:
+            return
+        assert self.state is not None
+        changed = False
+        for seat in self.spec.communicable_seats(self.state):
+            seat_info = self.seats[seat]
+            if seat_info is None or seat_info.kind != "ai":
+                continue
+            action = self.spec.ai_communicate(self.state, seat, seat_info.ai_player)
+            if action is not None:
+                self.spec.communicate(self.state, seat, action)
+                changed = True
+        if changed:
+            await self.broadcast()
+
     async def run_ai_turns(self) -> None:
         assert self.state is not None
         while self.spec.outcome(self.state) is None:
             if self.awaiting_next:
                 return
+            await self._maybe_ai_communicate()
             seat = self.spec.player_to_act(self.state)
             if seat is None:
                 break

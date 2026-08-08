@@ -181,7 +181,20 @@ class GameState:
     def communicate(self, player: int, card: Card) -> Signal:
         if self.trick_in_progress:
             raise ValueError("Communication is only allowed before a trick starts")
+        if player == self.current_leader:
+            raise ValueError("The player leading this trick cannot communicate")
         return self.comms.communicate(player, card, self.hands[player])
+
+    def communicable_seats(self) -> list[int]:
+        """Seats currently allowed to attempt a Sonar signal: nobody once
+        the trick has started, and never the player leading it."""
+        if self.phase != "playing" or self.trick_in_progress:
+            return []
+        return [
+            seat
+            for seat in range(self.num_players)
+            if seat != self.current_leader and self.comms.can_communicate(seat)
+        ]
 
 
 def new_game(

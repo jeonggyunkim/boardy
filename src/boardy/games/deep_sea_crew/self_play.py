@@ -18,6 +18,7 @@ from .encoding import NUM_CARDS, CARD_TO_INDEX, encode_observation
 from .engine import new_game
 from .mcts import run_mcts, select_action
 from .network import PolicyValueNet
+from .players import _random_signal_choice
 
 
 @dataclass
@@ -48,6 +49,16 @@ def play_self_play_game(
         state.draft_task(seat, task.id)
 
     while state.outcome is None:
+        # No search-based comm strategy yet (same simplification as random
+        # task-drafting above) -- but signals are part of the observation
+        # encoding (see encoding.py), so self-play still needs to actually
+        # produce some so the network has real signals to learn to read,
+        # rather than training on an input that's always empty.
+        for other in state.communicable_seats():
+            card = _random_signal_choice(state, other, rng)
+            if card is not None:
+                state.communicate(other, card)
+
         seat = state.player_to_act
         visit_probs = run_mcts(state, net, num_simulations=num_simulations, add_noise=True)
 
