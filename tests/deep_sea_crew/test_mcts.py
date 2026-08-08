@@ -1,9 +1,9 @@
 import random
 
-from deepsea.engine import new_game
-from deepsea.mcts import run_mcts, select_action
-from deepsea.mcts_inference import run_ismcts, sample_determinization
-from deepsea.network import PolicyValueNet
+from boardy.games.deep_sea_crew.engine import new_game
+from boardy.games.deep_sea_crew.mcts import run_mcts, select_action
+from boardy.games.deep_sea_crew.mcts_inference import run_ismcts, sample_determinization
+from boardy.games.deep_sea_crew.network import PolicyValueNet
 
 
 def test_run_mcts_returns_distribution_over_legal_moves():

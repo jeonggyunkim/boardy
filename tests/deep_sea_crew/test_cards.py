@@ -1,4 +1,4 @@
-from deepsea.cards import Card, Suit, deal, full_deck
+from boardy.games.deep_sea_crew.cards import Card, Suit, deal, full_deck
 
 
 def test_full_deck_size():

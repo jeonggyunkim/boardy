@@ -14,9 +14,9 @@ from pathlib import Path
 
 import torch
 
-from ..network import PolicyValueNet
+from .network import PolicyValueNet
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
+_REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent.parent
 _CHECKPOINT_CANDIDATES = [
     _REPO_ROOT / "checkpoints_easy" / "latest.pt",
     _REPO_ROOT / "checkpoints" / "latest.pt",

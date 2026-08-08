@@ -1,7 +1,7 @@
 [project]
-name = "deepsea"
+name = "boardy"
 version = "0.1.0"
-description = "Deep Sea Crew (The Crew: Mission Deep Sea) rules engine, AI player, and online play service"
+description = "AI companions for board games, playable online with friends. First game: Deep Sea Crew."
 requires-python = ">=3.11"
 dependencies = [
     "torch>=2.2",
@@ -21,7 +21,8 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [project.scripts]
-deepsea-cli = "deepsea.cli:main"
-deepsea-train = "deepsea.train:main"
-deepsea-eval = "deepsea.evaluate:main"
-deepsea-web = "deepsea.web.server:run"
+boardy-cli = "boardy.cli:main"
+boardy-web = "boardy.web.server:run"
+deepsea-cli = "boardy.games.deep_sea_crew.cli:main"
+deepsea-train = "boardy.games.deep_sea_crew.train:main"
+deepsea-eval = "boardy.games.deep_sea_crew.evaluate:main"

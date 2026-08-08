@@ -1,7 +1,7 @@
 """Self-play training loop: generate games with MCTS, fit the network, repeat.
 
 Usage:
-    python -m deepsea.train --iterations 20 --games-per-iter 20
+    python -m boardy.games.deep_sea_crew.train --iterations 20 --games-per-iter 20
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ import torch.nn.functional as F
 from .network import PolicyValueNet
 from .self_play import Example, play_self_play_game
 
-DEFAULT_CHECKPOINT_DIR = Path(__file__).resolve().parent.parent.parent / "checkpoints"
+DEFAULT_CHECKPOINT_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "checkpoints"
 
 
 def train_on_batch(net: PolicyValueNet, optimizer: torch.optim.Optimizer, batch: list[Example]) -> tuple[float, float]:

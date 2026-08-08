@@ -1,16 +1,19 @@
-"""Per-seat JSON views of a GameState — hides every other seat's hand."""
+"""Maps GameState -> the generic per-seat JSON view boardy.web expects.
+
+This is the deep_sea_crew half of the GameSpec.serialize_seat contract
+(see boardy/core/game_spec.py) — the shape here (hand/legal_moves/
+trick_in_progress/tasks/...) is what the shared frontend renders. It's
+game-specific content behind a generic key schema, not shared code.
+"""
 
 from __future__ import annotations
 
-from ..cards import Card
-from ..engine import GameState
+from .engine import GameState
 
 
-def serialize_state(state: GameState, seat: int, players_meta: list[dict]) -> dict:
+def serialize_seat(state: GameState, seat: int, players_meta: list[dict]) -> dict:
     legal = [str(c) for c in state.legal_cards_for(seat)] if state.player_to_act == seat else []
     return {
-        "type": "state",
-        "seat": seat,
         "players": players_meta,
         "num_players": state.num_players,
         "hand": [str(c) for c in state.hands[seat]],
@@ -47,7 +50,3 @@ def serialize_state(state: GameState, seat: int, players_meta: list[dict]) -> di
         "can_communicate": state.comms.can_communicate(seat),
         "outcome": state.outcome,
     }
-
-
-def parse_card(text: str) -> Card:
-    return Card.parse(text)

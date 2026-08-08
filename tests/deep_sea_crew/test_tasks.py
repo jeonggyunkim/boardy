@@ -1,5 +1,5 @@
-from deepsea.cards import Card, Suit
-from deepsea.tasks import Task, TaskKind, missions_completed
+from boardy.games.deep_sea_crew.cards import Card, Suit
+from boardy.games.deep_sea_crew.tasks import Task, TaskKind, missions_completed
 
 
 def test_win_card_success():

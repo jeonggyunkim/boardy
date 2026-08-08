@@ -1,5 +1,5 @@
-from deepsea.encoding import OBS_SIZE, NUM_CARDS, encode_observation, legal_action_mask
-from deepsea.engine import new_game
+from boardy.games.deep_sea_crew.encoding import OBS_SIZE, NUM_CARDS, encode_observation, legal_action_mask
+from boardy.games.deep_sea_crew.engine import new_game
 
 
 def test_encode_observation_shape():

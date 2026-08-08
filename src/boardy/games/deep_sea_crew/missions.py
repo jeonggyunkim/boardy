@@ -12,7 +12,7 @@ from pathlib import Path
 from .cards import Card, Suit
 from .tasks import Task, TaskKind
 
-_DATA_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "tasks.json"
+_DATA_PATH = Path(__file__).resolve().parent.parent.parent.parent.parent / "data" / "deep_sea_crew" / "tasks.json"
 
 
 def load_templates() -> list[dict]:

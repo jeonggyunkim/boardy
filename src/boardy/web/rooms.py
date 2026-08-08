@@ -1,8 +1,11 @@
 """In-memory room/session management for realtime play.
 
-A Room holds up to `num_players` seats. Each seat is either a connected
-human (WebSocket) or an AI (RandomPlayer for now — swap in NetPlayer once
-a checkpoint is trained, see docs/PLAN.md Phase 2). Single-process,
+A Room holds up to `num_players` seats for one registered game (see
+boardy.core.game_spec.GameSpec). Each seat is either a connected human
+(WebSocket) or an AI (random or, if the game provides one, a stronger
+search/learned player). All game logic is reached only through the
+GameSpec — this module has no idea what a "card" or a "trick" is, so it
+works unmodified for any future game that registers one. Single-process,
 in-memory only: fine for a development skeleton, not for multi-instance
 deployment.
 """
@@ -13,14 +16,11 @@ import asyncio
 import random
 import string
 from dataclasses import dataclass, field
+from typing import Any
 
 from fastapi import WebSocket
 
-from ..cards import Card
-from ..engine import GameState, new_game
-from ..players import NetPlayer, Player, RandomPlayer
-from .ai import get_shared_net
-from .serialize import serialize_state
+from ..core.game_spec import GameSpec, Player
 
 
 def make_room_code(rng: random.Random | None = None) -> str:
@@ -39,10 +39,11 @@ class SeatInfo:
 @dataclass
 class Room:
     code: str
+    spec: GameSpec
     num_players: int
     difficulty: int
     seats: list[SeatInfo | None] = field(default_factory=list)
-    state: GameState | None = None
+    state: Any | None = None
 
     def __post_init__(self) -> None:
         if not self.seats:
@@ -66,19 +67,11 @@ class Room:
     def add_ai(self, mode: str = "random", name: str | None = None) -> int | None:
         for i, s in enumerate(self.seats):
             if s is None:
-                tag = "smart" if mode == "smart" else "random"
+                use_smart = mode == "smart" and self.spec.make_smart_player is not None
+                tag = "smart" if use_smart else "random"
                 seat_name = name or f"AI-{i}({tag})"
-                if mode == "smart":
-                    player: Player = NetPlayer(
-                        get_shared_net(),
-                        name=seat_name,
-                        use_search=True,
-                        num_determinizations=5,
-                        sims_per_determinization=15,
-                    )
-                else:
-                    player = RandomPlayer(name=seat_name)
-                self.seats[i] = SeatInfo(name=seat_name, kind="ai", ai_player=player)
+                factory = self.spec.make_smart_player if use_smart else self.spec.make_random_player
+                self.seats[i] = SeatInfo(name=seat_name, kind="ai", ai_player=factory(seat_name))
                 return i
         return None
 
@@ -97,12 +90,13 @@ class Room:
             raise ValueError("Room already started")
         if not self.is_full:
             raise ValueError("Room is not full yet")
-        self.state = new_game(self.num_players, difficulty_budget=self.difficulty, seed=seed)
+        self.state = self.spec.new_game(self.num_players, self.difficulty, seed)
 
     async def broadcast_lobby(self) -> None:
         payload = {
             "type": "lobby",
             "code": self.code,
+            "game": self.spec.slug,
             "num_players": self.num_players,
             "difficulty": self.difficulty,
             "players": self.players_meta(),
@@ -120,48 +114,45 @@ class Room:
         for seat, s in enumerate(self.seats):
             if s and s.kind == "human" and s.ws is not None:
                 try:
-                    await s.ws.send_json(serialize_state(self.state, seat, meta))
+                    view = self.spec.serialize_seat(self.state, seat, meta)
+                    await s.ws.send_json({"type": "state", "seat": seat, **view})
                 except Exception:
                     pass
 
-    def _apply_move(self, seat: int, card: Card) -> None:
+    async def play_human_card(self, seat: int, action: str) -> None:
         assert self.state is not None
-        self.state.play_card(seat, card)
-
-    async def play_human_card(self, seat: int, card_text: str) -> None:
-        assert self.state is not None
-        if self.state.player_to_act != seat:
+        if self.spec.player_to_act(self.state) != seat:
             return
-        card = Card.parse(card_text)
-        if card not in self.state.legal_cards_for(seat):
+        if action not in self.spec.legal_actions(self.state, seat):
             return
-        self._apply_move(seat, card)
+        self.spec.play(self.state, seat, action)
         await self.broadcast()
         await self.run_ai_turns()
 
-    async def communicate(self, seat: int, card_text: str) -> None:
+    async def communicate(self, seat: int, action: str) -> None:
         assert self.state is not None
-        card = Card.parse(card_text)
+        if self.spec.communicate is None:
+            return
         try:
-            self.state.communicate(seat, card)
+            self.spec.communicate(self.state, seat, action)
         except ValueError:
             return
         await self.broadcast()
 
     async def run_ai_turns(self) -> None:
         assert self.state is not None
-        while self.state.outcome is None:
-            seat = self.state.player_to_act
+        while self.spec.outcome(self.state) is None:
+            seat = self.spec.player_to_act(self.state)
             if seat is None:
                 break
             seat_info = self.seats[seat]
             if seat_info is None or seat_info.kind != "ai":
                 break
             loop = asyncio.get_running_loop()
-            card = await loop.run_in_executor(
+            action = await loop.run_in_executor(
                 None, seat_info.ai_player.choose_card, self.state, seat
             )
-            self._apply_move(seat, card)
+            self.spec.play(self.state, seat, action)
             await self.broadcast()
 
 
@@ -170,11 +161,11 @@ class RoomRegistry:
         self._rooms: dict[str, Room] = {}
         self._rng = random.Random()
 
-    def create(self, num_players: int, difficulty: int) -> Room:
+    def create(self, spec: GameSpec, num_players: int, difficulty: int) -> Room:
         code = make_room_code(self._rng)
         while code in self._rooms:
             code = make_room_code(self._rng)
-        room = Room(code=code, num_players=num_players, difficulty=difficulty)
+        room = Room(code=code, spec=spec, num_players=num_players, difficulty=difficulty)
         self._rooms[code] = room
         return room
 

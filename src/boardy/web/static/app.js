@@ -131,7 +131,7 @@ function renderState(s) {
     card.title = legal ? "클릭해서 플레이" : commOnly ? "클릭해서 통신 신호로 선택" : "";
     card.onclick = () => {
       if (legal) {
-        ws.send(JSON.stringify({ type: "play", card: code }));
+        ws.send(JSON.stringify({ type: "play", action: code }));
         selectedForComm = null;
       } else if (commOnly) {
         selectedForComm = selectedForComm === code ? null : code;
@@ -144,7 +144,7 @@ function renderState(s) {
   el("commBtn").disabled = !(s.can_communicate && selectedForComm);
   el("commBtn").onclick = () => {
     if (selectedForComm) {
-      ws.send(JSON.stringify({ type: "communicate", card: selectedForComm }));
+      ws.send(JSON.stringify({ type: "communicate", action: selectedForComm }));
       selectedForComm = null;
     }
   };
@@ -153,10 +153,12 @@ function renderState(s) {
 el("createBtn").onclick = async () => {
   const num_players = parseInt(el("np").value, 10);
   const difficulty = parseInt(el("diff").value, 10);
+  // Only one game is wired into the UI today; the server already supports
+  // any registered game slug (see GET /api/games) for a future picker.
   const res = await fetch("/api/rooms", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ num_players, difficulty }),
+    body: JSON.stringify({ game: "deep_sea_crew", num_players, difficulty }),
   });
   const data = await res.json();
   if (data.error) {

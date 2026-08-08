@@ -1,9 +1,9 @@
 import random
 
-from deepsea.cards import Card, Suit
-from deepsea.engine import GameState, resolve_trick, new_game
-from deepsea.communication import CommunicationBoard
-from deepsea.players import RandomPlayer
+from boardy.games.deep_sea_crew.cards import Card, Suit
+from boardy.games.deep_sea_crew.engine import GameState, resolve_trick, new_game
+from boardy.games.deep_sea_crew.communication import CommunicationBoard
+from boardy.games.deep_sea_crew.players import RandomPlayer
 
 
 def make_bare_state(num_players=3, hand_size=2) -> GameState:
