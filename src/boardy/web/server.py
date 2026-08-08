@@ -79,7 +79,7 @@ async def ws_room(ws: WebSocket, code: str, name: str = "player") -> None:
     if room.started:
         assert room.state is not None
         view = room.spec.serialize_seat(room.state, seat, room.players_meta())
-        await ws.send_json({"type": "state", "seat": seat, **view})
+        await ws.send_json({"type": "state", "seat": seat, "game": room.spec.slug, **view})
     else:
         await ws.send_json({"type": "joined", "seat": seat})
         await room.broadcast_lobby()

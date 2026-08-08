@@ -2,12 +2,40 @@ let ws = null;
 let mySeat = null;
 let selectedForComm = null;
 let lastState = null;
+let games = [];
 
 const suitClass = (code) => ({ Y: "yellow", P: "pink", G: "green", B: "blue", S: "submarine" }[code[0]] || "");
 
 function el(id) { return document.getElementById(id); }
 function show(id) { el(id).classList.remove("hidden"); }
 function hide(id) { el(id).classList.add("hidden"); }
+
+// ---------- lobby / connection ----------
+
+async function loadGames() {
+  const res = await fetch("/api/games");
+  const data = await res.json();
+  games = data.games || [];
+  const select = el("gameSelect");
+  select.innerHTML = "";
+  games.forEach((g) => {
+    const opt = document.createElement("option");
+    opt.value = g.slug;
+    opt.textContent = g.name;
+    select.appendChild(opt);
+  });
+  updateGameFields();
+}
+
+function updateGameFields() {
+  const g = games.find((g) => g.slug === el("gameSelect").value);
+  if (!g) return;
+  el("gameDesc").textContent = g.description;
+  el("np").min = g.min_players;
+  el("np").max = g.max_players;
+  el("np").value = Math.min(Math.max(parseInt(el("np").value, 10) || g.min_players, g.min_players), g.max_players);
+  el("diffLabel").classList.toggle("hidden", g.slug !== "deep_sea_crew");
+}
 
 function connect(code, name) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
@@ -38,7 +66,15 @@ function handleMessage(msg) {
     hide("landing");
     hide("lobby");
     show("game");
-    renderState(msg);
+    if (msg.game === "gomoku") {
+      show("gomokuView");
+      hide("dscView");
+      renderGomoku(msg);
+    } else {
+      show("dscView");
+      hide("gomokuView");
+      renderDeepSeaCrew(msg);
+    }
     return;
   }
 }
@@ -58,6 +94,8 @@ function renderLobby(msg) {
   el("startBtn").disabled = !full;
 }
 
+// ---------- Deep Sea Crew rendering ----------
+
 function cardEl(code, { clickable, selected } = {}) {
   const btn = document.createElement("button");
   btn.type = "button";
@@ -67,7 +105,7 @@ function cardEl(code, { clickable, selected } = {}) {
   return btn;
 }
 
-function renderState(s) {
+function renderDeepSeaCrew(s) {
   if (s.outcome !== null) {
     const banner = el("outcomeBanner");
     banner.classList.remove("hidden", "success", "failure");
@@ -135,7 +173,7 @@ function renderState(s) {
         selectedForComm = null;
       } else if (commOnly) {
         selectedForComm = selectedForComm === code ? null : code;
-        renderState(lastState);
+        renderDeepSeaCrew(lastState);
       }
     };
     handDiv.appendChild(card);
@@ -150,15 +188,74 @@ function renderState(s) {
   };
 }
 
+// ---------- Gomoku rendering ----------
+
+function renderGomoku(s) {
+  if (s.winner !== null) {
+    const banner = el("outcomeBanner");
+    banner.classList.remove("hidden", "success", "failure");
+    const iWon = s.winner_seat === s.seat;
+    const isDraw = s.winner === "draw";
+    banner.classList.add(isDraw ? "failure" : iWon ? "success" : "failure");
+    banner.textContent = isDraw ? "무승부." : iWon ? "당신 승리!" : `${s.winner === "black" ? "흑" : "백"} 승리.`;
+  } else {
+    hide("outcomeBanner");
+  }
+
+  const isMyTurn = s.player_to_act === s.seat;
+  const actingPlayer = s.player_to_act !== null ? s.players[s.player_to_act] : null;
+  const actingIsAi = actingPlayer && actingPlayer.kind === "ai";
+  el("gomokuStatus").textContent =
+    s.player_to_act === null
+      ? "게임 종료"
+      : isMyTurn
+      ? `당신 차례 (${s.my_color === "black" ? "흑" : "백"})`
+      : actingIsAi
+      ? `${actingPlayer.name} 생각 중...`
+      : `P${s.player_to_act} 차례 대기`;
+
+  const legalSet = new Set(s.legal_moves);
+  const boardDiv = el("gomokuBoard");
+  boardDiv.innerHTML = "";
+  for (let r = 0; r < s.size; r++) {
+    const rowDiv = document.createElement("div");
+    rowDiv.className = "gomoku-row";
+    for (let c = 0; c < s.size; c++) {
+      const value = s.board[r * s.size + c];
+      const key = `${r},${c}`;
+      const cell = document.createElement("button");
+      cell.type = "button";
+      cell.className = "gomoku-cell";
+      if (s.last_move && s.last_move[0] === r && s.last_move[1] === c) cell.classList.add("last-move");
+      const legal = isMyTurn && legalSet.has(key);
+      cell.disabled = !legal;
+      if (legal) cell.classList.add("legal");
+      if (value !== 0) {
+        const stone = document.createElement("span");
+        stone.className = "stone " + (value === 1 ? "black" : "white");
+        cell.appendChild(stone);
+      }
+      cell.onclick = () => {
+        if (legal) ws.send(JSON.stringify({ type: "play", action: key }));
+      };
+      rowDiv.appendChild(cell);
+    }
+    boardDiv.appendChild(rowDiv);
+  }
+}
+
+// ---------- landing page actions ----------
+
+el("gameSelect").onchange = updateGameFields;
+
 el("createBtn").onclick = async () => {
+  const game = el("gameSelect").value;
   const num_players = parseInt(el("np").value, 10);
   const difficulty = parseInt(el("diff").value, 10);
-  // Only one game is wired into the UI today; the server already supports
-  // any registered game slug (see GET /api/games) for a future picker.
   const res = await fetch("/api/rooms", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ game: "deep_sea_crew", num_players, difficulty }),
+    body: JSON.stringify({ game, num_players, difficulty }),
   });
   const data = await res.json();
   if (data.error) {
@@ -182,3 +279,5 @@ el("joinBtn").onclick = () => {
 el("addAiBtn").onclick = () =>
   ws.send(JSON.stringify({ type: "add_ai", mode: el("aiMode").value }));
 el("startBtn").onclick = () => ws.send(JSON.stringify({ type: "start" }));
+
+loadGames();

@@ -21,7 +21,7 @@ class _StrPlayerAdapter:
         self._inner = inner
         self.name = inner.name
 
-    def choose_card(self, state: GameState, seat: int) -> str:
+    def choose_action(self, state: GameState, seat: int) -> str:
         return str(self._inner.choose_card(state, seat))
 
 

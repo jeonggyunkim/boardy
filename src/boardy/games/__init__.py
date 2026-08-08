@@ -7,4 +7,5 @@ here.
 """
 
 from . import deep_sea_crew  # noqa: F401  (import side effect: registers this game)
+from . import gomoku  # noqa: F401  (import side effect: registers this game)
 

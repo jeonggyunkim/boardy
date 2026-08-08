@@ -115,7 +115,7 @@ class Room:
             if s and s.kind == "human" and s.ws is not None:
                 try:
                     view = self.spec.serialize_seat(self.state, seat, meta)
-                    await s.ws.send_json({"type": "state", "seat": seat, **view})
+                    await s.ws.send_json({"type": "state", "seat": seat, "game": self.spec.slug, **view})
                 except Exception:
                     pass
 
@@ -150,7 +150,7 @@ class Room:
                 break
             loop = asyncio.get_running_loop()
             action = await loop.run_in_executor(
-                None, seat_info.ai_player.choose_card, self.state, seat
+                None, seat_info.ai_player.choose_action, self.state, seat
             )
             self.spec.play(self.state, seat, action)
             await self.broadcast()

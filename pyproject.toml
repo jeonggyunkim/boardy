@@ -1,7 +1,7 @@
 [project]
 name = "boardy"
 version = "0.1.0"
-description = "AI companions for board games, playable online with friends. First game: Deep Sea Crew."
+description = "AI companions for board games, playable online with friends. Games: Deep Sea Crew, Gomoku."
 requires-python = ">=3.11"
 dependencies = [
     "torch>=2.2",
@@ -26,3 +26,6 @@ boardy-web = "boardy.web.server:run"
 deepsea-cli = "boardy.games.deep_sea_crew.cli:main"
 deepsea-train = "boardy.games.deep_sea_crew.train:main"
 deepsea-eval = "boardy.games.deep_sea_crew.evaluate:main"
+gomoku-cli = "boardy.games.gomoku.cli:main"
+gomoku-train = "boardy.games.gomoku.train:main"
+gomoku-eval = "boardy.games.gomoku.evaluate:main"

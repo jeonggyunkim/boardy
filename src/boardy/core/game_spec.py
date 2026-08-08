@@ -24,7 +24,7 @@ from typing import Any, Callable, Protocol
 class Player(Protocol):
     name: str
 
-    def choose_card(self, state: Any, seat: int) -> str: ...
+    def choose_action(self, state: Any, seat: int) -> str: ...
 
 
 @dataclass
@@ -43,14 +43,23 @@ class GameSpec:
     player_to_act: Callable[[Any], int | None]
     # state, seat, action -> mutates state in place
     play: Callable[[Any, int, str], None]
-    # state -> None while ongoing, else True (success) / False (failure)
-    outcome: Callable[[Any], bool | None]
+    # state -> None while the game is ongoing, else any non-None terminal
+    # marker. The host layers only ever check "is it None" (has the game
+    # ended?) — what the marker actually contains is entirely up to the
+    # game (e.g. Deep Sea Crew: True/False mission success; Gomoku: which
+    # seat won, or a draw marker) and is interpreted by that game's own
+    # serialize_seat, not by boardy.web or boardy.cli.
+    outcome: Callable[[Any], Any]
     # state, seat, public players metadata -> JSON-able view for that seat.
-    # Expected keys (the web frontend's generic contract): hand (list[str]),
-    # legal_moves (list[str]), trick_in_progress (dict[str,str]), tasks
-    # (list of {id,owner,describe,resolved,success}), hand_sizes (list[int]),
-    # signals, can_communicate, outcome, player_to_act, current_leader,
-    # trick_number, hand_size, num_players, history.
+    # There's no single universal schema here — the web frontend dispatches
+    # its renderer by the "game" slug included in every message (see
+    # boardy/web/rooms.py), so each game is free to shape this however its
+    # own UI needs. Two shapes exist so far: a card-hand style (Deep Sea
+    # Crew: hand/legal_moves/trick_in_progress/tasks/hand_sizes/signals/...,
+    # see games/deep_sea_crew/web_view.py) and a board-grid style (Gomoku:
+    # board/legal_moves/last_move/winner/..., see games/gomoku/web_view.py).
+    # A new game either reuses one of those shapes or adds a new frontend
+    # renderer for its own.
     serialize_seat: Callable[[Any, int, list[dict]], dict]
 
     make_random_player: Callable[[str], Player]
