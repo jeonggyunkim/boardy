@@ -64,6 +64,16 @@ def test_leader_cannot_communicate():
         pass
 
 
+def test_cannot_communicate_a_submarine_card():
+    state = make_bare_state()
+    state.hands = [[Card(Suit.BLUE, 3)], [Card(Suit.SUBMARINE, 4)], [Card(Suit.GREEN, 2)]]
+    try:
+        state.communicate(1, Card(Suit.SUBMARINE, 4))
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
 def test_communicable_seats_excludes_leader_and_stops_once_trick_starts():
     state = make_bare_state()
     state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7)], [Card(Suit.GREEN, 2)]]

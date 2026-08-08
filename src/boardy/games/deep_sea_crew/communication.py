@@ -1,11 +1,13 @@
 """Sonar-token communication mechanic.
 
 ASSUMPTION (unverified, see docs/PLAN.md): once per game, a player may
-reveal one card from their hand face-up and mark it with a Sonar token
-indicating it is the HIGHEST, LOWEST, or ONLY card of that suit in their
-hand. Only allowed before a trick starts, and never by the player leading
-that trick (see GameState.communicate) -- once the first card of a trick
-has been played, no one may communicate until that trick resolves and the
+reveal one COLORED card (not a submarine -- there's only one trump suit,
+so "highest/lowest/only of its suit" isn't a meaningful signal for it)
+from their hand face-up and mark it with a Sonar token indicating it is
+the HIGHEST, LOWEST, or ONLY card of that suit in their hand. Only
+allowed before a trick starts, and never by the player leading that
+trick (see GameState.communicate) -- once the first card of a trick has
+been played, no one may communicate until that trick resolves and the
 next one begins. The card stays visible
 (but still in hand, still playable) until it is played. Some missions may
 disable or grant extra communications (Currents / Rapture of the Deep) —
@@ -17,7 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 
-from .cards import Card
+from .cards import Card, Suit
 
 
 class SonarMarker(str, Enum):
@@ -34,7 +36,12 @@ class Signal:
 
 
 def valid_marker(card: Card, hand: list[Card]) -> set[SonarMarker]:
-    """Which markers are truthfully applicable to `card` within `hand`."""
+    """Which markers are truthfully applicable to `card` within `hand`.
+    Submarine (trump) cards can never be signaled -- the highest/lowest/
+    only comparison is a same-color-suit concept, and submarines aren't
+    one of the four colors."""
+    if card.suit == Suit.SUBMARINE:
+        return set()
     same_suit = [c for c in hand if c.suit == card.suit]
     if len(same_suit) == 1:
         return {SonarMarker.ONLY}
