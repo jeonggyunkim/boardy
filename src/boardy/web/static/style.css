@@ -35,13 +35,16 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
    has an active signal (see .signal-slot below). */
 .card-wrap { position: relative; display: inline-block; }
 .comm-token {
-  position: absolute; left: 50%; width: 14px; height: 14px;
+  position: absolute; width: 14px; height: 14px;
   border-radius: 50%; background: #ffd54a; border: 2px solid #8a6d00;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5); pointer-events: none;
 }
-.comm-token.token-top { top: -5px; transform: translateX(-50%); }
-.comm-token.token-mid { top: 50%; transform: translate(-50%, -50%); }
-.comm-token.token-bottom { bottom: -5px; transform: translateX(-50%); }
+.comm-token.token-top { left: 50%; top: -5px; transform: translateX(-50%); }
+/* Not left:50% -- the card's rank text is centered both ways, so a
+   dead-center token would hide it. Sit on the right edge instead, still
+   vertically mid (neither top nor bottom), so the digit stays readable. */
+.comm-token.token-mid { right: -5px; top: 50%; transform: translateY(-50%); }
+.comm-token.token-bottom { left: 50%; bottom: -5px; transform: translateX(-50%); }
 .signal-slot { margin-top: 0.4rem; }
 #outcomeBanner { padding: 0.8rem; border-radius: 6px; font-weight: bold; margin-bottom: 0.6rem; }
 #outcomeBanner.success { background: #1b5e20; }

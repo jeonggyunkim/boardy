@@ -6,6 +6,14 @@ let games = [];
 // stays cleared across re-renders until the next trick actually starts
 // (see renderDeepSeaCrew / the nextTrickBtn handler).
 let acknowledgedTrick = null;
+// {game, num_players, difficulty, name, seat, aiModes} for the room THIS
+// client created, so "다시 플레이" can spin up an equivalent one -- null
+// if this client joined someone else's room instead (nothing to replay).
+let lastSetup = null;
+// Set by playAgain() right before connecting to the freshly created room;
+// consumed by the "joined" handler to auto-add the same AI seats and
+// start, without the user re-clicking through the lobby.
+let pendingAutoSetup = null;
 
 const suitClass = (code) => ({ Y: "yellow", P: "pink", G: "green", B: "blue", S: "submarine" }[code[0]] || "");
 
@@ -14,6 +22,7 @@ const suitClass = (code) => ({ Y: "yellow", P: "pink", G: "green", B: "blue", S:
 // known client-side, so this can be previewed before the click is sent.
 function cardMarker(code, hand) {
   const suit = code[0];
+  if (suit === "S") return null; // submarines can't be signaled
   const sameSuit = hand.filter((c) => c[0] === suit);
   if (sameSuit.length === 1) return "only";
   const rankOf = (c) => parseInt(c.slice(1), 10);
@@ -105,7 +114,10 @@ async function showSeatPicker(code, name) {
     const taken = !!p.name;
     btn.disabled = taken || info.started;
     btn.textContent = taken ? `Player ${i} — ${p.name} (${p.kind}, 이미 참가함)` : `Player ${i} — 비어 있음`;
-    btn.onclick = () => connect(code, name, i);
+    btn.onclick = () => {
+      if (lastSetup) lastSetup.seat = i;
+      connect(code, name, i);
+    };
     container.appendChild(btn);
   });
 }
@@ -121,6 +133,15 @@ function handleMessage(msg) {
     hide("landing");
     hide("seatPicker");
     show("lobby");
+    if (pendingAutoSetup) {
+      const modes = pendingAutoSetup.aiModes;
+      pendingAutoSetup = null;
+      modes.forEach((mode) => {
+        if (lastSetup) lastSetup.aiModes.push(mode);
+        ws.send(JSON.stringify({ type: "add_ai", mode }));
+      });
+      ws.send(JSON.stringify({ type: "start" }));
+    }
     return;
   }
   if (msg.type === "lobby") {
@@ -162,7 +183,8 @@ el("homeBtn").onclick = () => {
   }
   lastState = null;
   mySeat = null;
-  animatedTrickNumber = null;
+  acknowledgedTrick = null;
+  pendingAutoSetup = null;
   hide("game");
   hide("seatPicker");
   hide("lobby");
@@ -195,6 +217,15 @@ function cardEl(code, { clickable } = {}) {
   btn.textContent = code;
   btn.disabled = !clickable;
   return btn;
+}
+
+// s.trick_in_progress / a TrickRecord's .cards is a {seat: card} object,
+// and JSON object keys that look like integers are always iterated in
+// numeric order by JS (Object.entries ignores insertion order for them)
+// -- so rendering straight from it shows seat order, not play order.
+// Play order is always leader, leader+1, ... wrapping around the table.
+function playOrderFor(leader, numPlayers) {
+  return Array.from({ length: numPlayers }, (_, i) => (leader + i) % numPlayers);
 }
 
 function trickCardSpan(seat, code, isWinner = false) {
@@ -296,6 +327,13 @@ function renderDraft(s) {
     };
     pool.appendChild(btn);
   });
+
+  // Hands are dealt before drafting starts (see engine.new_game), so a
+  // player picking a task should already be able to see what they have to
+  // work with -- otherwise they're drafting blind.
+  const handDiv = el("draftHand");
+  handDiv.innerHTML = "";
+  s.hand.forEach((code) => handDiv.appendChild(cardEl(code, { clickable: false })));
 }
 
 function renderDeepSeaCrew(s) {
@@ -328,8 +366,8 @@ function renderDeepSeaCrew(s) {
     heading.textContent = `트릭 #${s.trick_number}`;
     table.appendChild(heading);
     table.appendChild(document.createElement("br"));
-    for (const [seat, code] of Object.entries(s.trick_in_progress)) {
-      table.appendChild(trickCardSpan(seat, code));
+    for (const seat of playOrderFor(s.current_leader, s.num_players)) {
+      if (seat in s.trick_in_progress) table.appendChild(trickCardSpan(seat, s.trick_in_progress[seat]));
     }
   } else if (lastTrick && lastTrick.number !== acknowledgedTrick) {
     // trick_in_progress clears the instant the last card is played, so
@@ -340,8 +378,8 @@ function renderDeepSeaCrew(s) {
     heading.textContent = `트릭 #${lastTrick.number} - P${lastTrick.winner} 승리!`;
     table.appendChild(heading);
     table.appendChild(document.createElement("br"));
-    for (const [seat, code] of Object.entries(lastTrick.cards)) {
-      table.appendChild(trickCardSpan(seat, code, seat == lastTrick.winner));
+    for (const seat of playOrderFor(lastTrick.leader, s.num_players)) {
+      if (seat in lastTrick.cards) table.appendChild(trickCardSpan(seat, lastTrick.cards[seat], seat == lastTrick.winner));
     }
   } else {
     table.innerHTML = `<b>트릭 #${s.trick_number}</b>`;
@@ -364,7 +402,9 @@ function renderDeepSeaCrew(s) {
   const actingPlayer = s.player_to_act !== null ? s.players[s.player_to_act] : null;
   const actingIsAi = actingPlayer && actingPlayer.kind === "ai";
   el("turnIndicator").textContent = s.awaiting_next
-    ? "트릭 결과를 확인하고 [다음]을 누르세요"
+    ? lastTrick
+      ? "트릭 결과를 확인하고 [다음]을 누르세요"
+      : "필요하면 지금 통신을 사용하세요. 준비되면 [다음]을 누르세요"
     : s.player_to_act === null
     ? "게임 종료"
     : isMyTurn
@@ -501,6 +541,10 @@ el("createBtn").onclick = async () => {
     return;
   }
   const name = el("createName").value.trim() || "player";
+  // Only a room THIS client created (not one it joined) has a known-full
+  // setup to replay -- seat gets filled in once picked, aiModes as they're
+  // added (see the seatButtons/addAiBtn handlers).
+  lastSetup = { game, num_players, difficulty, name, seat: null, aiModes: [] };
   showSeatPicker(data.code, name);
 };
 
@@ -511,11 +555,49 @@ el("joinBtn").onclick = () => {
     alert("방 코드를 입력하세요");
     return;
   }
+  lastSetup = null;
   showSeatPicker(code, name);
 };
 
-el("addAiBtn").onclick = () =>
-  ws.send(JSON.stringify({ type: "add_ai", mode: el("aiMode").value }));
+el("addAiBtn").onclick = () => {
+  const mode = el("aiMode").value;
+  if (lastSetup) lastSetup.aiModes.push(mode);
+  ws.send(JSON.stringify({ type: "add_ai", mode }));
+};
 el("startBtn").onclick = () => ws.send(JSON.stringify({ type: "start" }));
+
+// Recreates a room with the same game/인원수/난이도/좌석/AI 구성 as the one
+// that just ended, and auto-starts it -- only available when this client
+// was the one who created that room (see lastSetup).
+el("playAgainBtn").onclick = async () => {
+  if (!lastSetup) {
+    el("homeBtn").click();
+    return;
+  }
+  const { game, num_players, difficulty, name, seat, aiModes } = lastSetup;
+  const res = await fetch("/api/rooms", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ game, num_players, difficulty }),
+  });
+  const data = await res.json();
+  if (data.error) {
+    alert(data.error);
+    return;
+  }
+  if (ws) {
+    ws.onclose = null;
+    ws.close();
+    ws = null;
+  }
+  hide("game");
+  hide("postGameControls");
+  hide("outcomeBanner");
+  acknowledgedTrick = null;
+  lastState = null;
+  lastSetup = { game, num_players, difficulty, name, seat, aiModes: [] };
+  pendingAutoSetup = { aiModes };
+  connect(data.code, name, seat);
+};
 
 loadGames();
