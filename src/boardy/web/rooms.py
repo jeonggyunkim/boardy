@@ -44,6 +44,11 @@ class Room:
     difficulty: int
     seats: list[SeatInfo | None] = field(default_factory=list)
     state: Any | None = None
+    # Set when a "pausable" moment (per spec.post_move_delay) happens with
+    # at least one human seated: the AI-turn loop halts here until a human
+    # explicitly acknowledges (see acknowledge_next), rather than either
+    # blinking past it or wasting a fixed sleep on a room nobody's watching.
+    awaiting_next: bool = False
 
     def __post_init__(self) -> None:
         if not self.seats:
@@ -57,7 +62,18 @@ class Room:
     def started(self) -> bool:
         return self.state is not None
 
-    def add_human(self, name: str, ws: WebSocket) -> int | None:
+    @property
+    def has_human(self) -> bool:
+        return any(s and s.kind == "human" for s in self.seats)
+
+    def add_human(self, name: str, ws: WebSocket, seat: int | None = None) -> int | None:
+        """Claim a specific seat (e.g. to pick Gomoku's Black/White), or
+        the first empty one if `seat` isn't given. None if unavailable."""
+        if seat is not None:
+            if not (0 <= seat < len(self.seats)) or self.seats[seat] is not None:
+                return None
+            self.seats[seat] = SeatInfo(name=name, kind="human", ws=ws)
+            return seat
         for i, s in enumerate(self.seats):
             if s is None:
                 self.seats[i] = SeatInfo(name=name, kind="human", ws=ws)
@@ -115,27 +131,55 @@ class Room:
             if s and s.kind == "human" and s.ws is not None:
                 try:
                     view = self.spec.serialize_seat(self.state, seat, meta)
-                    await s.ws.send_json({"type": "state", "seat": seat, "game": self.spec.slug, **view})
+                    await s.ws.send_json(
+                        {
+                            "type": "state",
+                            "seat": seat,
+                            "game": self.spec.slug,
+                            "awaiting_next": self.awaiting_next,
+                            **view,
+                        }
+                    )
                 except Exception:
                     pass
 
     async def play_human_card(self, seat: int, action: str) -> None:
         assert self.state is not None
+        if self.awaiting_next:
+            return
         if self.spec.player_to_act(self.state) != seat:
             return
         if action not in self.spec.legal_actions(self.state, seat):
             return
         self.spec.play(self.state, seat, action)
         await self.broadcast()
-        await self._pause_if_wanted()
+        if await self._maybe_pause():
+            return
         await self.run_ai_turns()
 
-    async def _pause_if_wanted(self) -> None:
+    async def _maybe_pause(self) -> bool:
+        """After a "pausable" move: halt (awaiting an explicit ack) if a
+        human is seated to see it, else auto-continue after a brief sleep
+        (so all-AI/spectator rooms still make progress). Returns True if
+        the caller should stop advancing the game for now."""
         if self.spec.post_move_delay is None:
-            return
+            return False
         delay = self.spec.post_move_delay(self.state)
-        if delay > 0:
-            await asyncio.sleep(delay)
+        if delay <= 0:
+            return False
+        if self.has_human:
+            self.awaiting_next = True
+            await self.broadcast()
+            return True
+        await asyncio.sleep(delay)
+        return False
+
+    async def acknowledge_next(self) -> None:
+        if not self.awaiting_next:
+            return
+        self.awaiting_next = False
+        await self.broadcast()
+        await self.run_ai_turns()
 
     async def communicate(self, seat: int, action: str) -> None:
         assert self.state is not None
@@ -150,6 +194,8 @@ class Room:
     async def run_ai_turns(self) -> None:
         assert self.state is not None
         while self.spec.outcome(self.state) is None:
+            if self.awaiting_next:
+                return
             seat = self.spec.player_to_act(self.state)
             if seat is None:
                 break
@@ -162,7 +208,8 @@ class Room:
             )
             self.spec.play(self.state, seat, action)
             await self.broadcast()
-            await self._pause_if_wanted()
+            if await self._maybe_pause():
+                return
 
 
 class RoomRegistry:

@@ -59,27 +59,50 @@ def create_room(req: CreateRoomRequest) -> dict:
             "error": f"{spec.name} supports {spec.min_players}-{spec.max_players} players"
         }
     room = registry.create(spec, req.num_players, req.difficulty)
-    return {"code": room.code, "game": spec.slug}
+    return {"code": room.code, "game": spec.slug, "num_players": room.num_players}
+
+
+@app.get("/api/rooms/{code}")
+def get_room(code: str) -> dict:
+    room = registry.get(code)
+    if room is None:
+        return {"error": "No such room"}
+    return {
+        "code": room.code,
+        "game": room.spec.slug,
+        "num_players": room.num_players,
+        "started": room.started,
+        "players": room.players_meta(),
+    }
 
 
 @app.websocket("/ws/{code}")
-async def ws_room(ws: WebSocket, code: str, name: str = "player") -> None:
+async def ws_room(ws: WebSocket, code: str, name: str = "player", seat: int | None = None) -> None:
     room = registry.get(code)
     if room is None:
         await ws.close(code=4404)
         return
 
     await ws.accept()
-    seat = room.add_human(name, ws)
-    if seat is None:
-        await ws.send_json({"type": "error", "message": "Room is full"})
+    assigned_seat = room.add_human(name, ws, seat=seat)
+    if assigned_seat is None:
+        await ws.send_json({"type": "error", "message": "Room is full or that seat is taken"})
         await ws.close(code=4403)
         return
+    seat = assigned_seat
 
     if room.started:
         assert room.state is not None
         view = room.spec.serialize_seat(room.state, seat, room.players_meta())
-        await ws.send_json({"type": "state", "seat": seat, "game": room.spec.slug, **view})
+        await ws.send_json(
+            {
+                "type": "state",
+                "seat": seat,
+                "game": room.spec.slug,
+                "awaiting_next": room.awaiting_next,
+                **view,
+            }
+        )
     else:
         await ws.send_json({"type": "joined", "seat": seat})
         await room.broadcast_lobby()
@@ -104,6 +127,8 @@ async def ws_room(ws: WebSocket, code: str, name: str = "player") -> None:
                 await room.play_human_card(seat, msg.get("action", ""))
             elif mtype == "communicate" and room.started:
                 await room.communicate(seat, msg.get("action", ""))
+            elif mtype == "next" and room.started:
+                await room.acknowledge_next()
     except WebSocketDisconnect:
         room.remove_seat(seat)
         if not room.started:

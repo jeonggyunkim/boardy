@@ -37,12 +37,39 @@ function updateGameFields() {
   el("diffLabel").classList.toggle("hidden", g.slug !== "deep_sea_crew");
 }
 
-function connect(code, name) {
+function connect(code, name, seat) {
   const proto = location.protocol === "https:" ? "wss" : "ws";
-  ws = new WebSocket(`${proto}://${location.host}/ws/${code}?name=${encodeURIComponent(name)}`);
+  const seatParam = seat === undefined || seat === null ? "" : `&seat=${seat}`;
+  ws = new WebSocket(`${proto}://${location.host}/ws/${code}?name=${encodeURIComponent(name)}${seatParam}`);
   ws.onmessage = (ev) => handleMessage(JSON.parse(ev.data));
   ws.onclose = () => console.log("disconnected");
   el("roomCode").textContent = code.toUpperCase();
+}
+
+// Shows the empty/taken seats for `code` and lets the user click one to
+// join as that specific player number (Gomoku: seat 0 = Black, 1 = White).
+async function showSeatPicker(code, name) {
+  const res = await fetch(`/api/rooms/${code}`);
+  const info = await res.json();
+  if (info.error) {
+    alert(info.error);
+    return;
+  }
+  hide("landing");
+  show("seatPicker");
+  el("pickerRoomCode").textContent = code.toUpperCase();
+  const container = el("seatButtons");
+  container.innerHTML = "";
+  info.players.forEach((p, i) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "seat-btn";
+    const taken = !!p.name;
+    btn.disabled = taken || info.started;
+    btn.textContent = taken ? `Player ${i} — ${p.name} (${p.kind}, 이미 참가함)` : `Player ${i} — 비어 있음`;
+    btn.onclick = () => connect(code, name, i);
+    container.appendChild(btn);
+  });
 }
 
 function handleMessage(msg) {
@@ -53,6 +80,7 @@ function handleMessage(msg) {
   if (msg.type === "joined") {
     mySeat = msg.seat;
     hide("landing");
+    hide("seatPicker");
     show("lobby");
     return;
   }
@@ -64,6 +92,7 @@ function handleMessage(msg) {
     mySeat = msg.seat;
     lastState = msg;
     hide("landing");
+    hide("seatPicker");
     hide("lobby");
     show("game");
     if (msg.game === "gomoku") {
@@ -96,6 +125,7 @@ el("homeBtn").onclick = () => {
   mySeat = null;
   selectedForComm = null;
   hide("game");
+  hide("seatPicker");
   hide("lobby");
   hide("postGameControls");
   hide("outcomeBanner");
@@ -197,8 +227,46 @@ function renderPlayerBoards(s) {
     countLabel.textContent = `트릭 ${count}개`;
     board.appendChild(countLabel);
 
+    // this player's drafted tasks, so it's clear who picked what
+    const taskDiv = document.createElement("div");
+    taskDiv.className = "player-tasks";
+    s.tasks
+      .filter((t) => t.owner === i)
+      .forEach((t) => {
+        const row = document.createElement("div");
+        row.className = "mini-task " + (t.resolved ? (t.success ? "ok" : "failed") : "");
+        row.textContent = t.describe_plain;
+        taskDiv.appendChild(row);
+      });
+    board.appendChild(taskDiv);
+
     container.appendChild(board);
   }
+}
+
+function renderDraft(s) {
+  const isMyTurn = s.player_to_act === s.seat;
+  const actingPlayer = s.player_to_act !== null ? s.players[s.player_to_act] : null;
+  const actingIsAi = actingPlayer && actingPlayer.kind === "ai";
+  el("draftStatus").textContent = isMyTurn
+    ? "과제 뽑기: 당신 차례 — 원하는 과제를 선택하세요"
+    : actingIsAi
+    ? `${actingPlayer.name} 과제 선택 중...`
+    : `P${s.player_to_act} 과제 선택 대기`;
+
+  const pool = el("draftPool");
+  pool.innerHTML = "";
+  s.available_tasks.forEach((t) => {
+    const btn = document.createElement("button");
+    const pickable = isMyTurn && s.legal_moves.includes(t.id);
+    btn.className = "draft-task" + (pickable ? " pickable" : "");
+    btn.disabled = !pickable;
+    btn.innerHTML = `<span class="diff">난이도 ${t.difficulty}</span>${t.describe}`;
+    btn.onclick = () => {
+      if (pickable) ws.send(JSON.stringify({ type: "play", action: t.id }));
+    };
+    pool.appendChild(btn);
+  });
 }
 
 function renderDeepSeaCrew(s) {
@@ -212,6 +280,15 @@ function renderDeepSeaCrew(s) {
   }
 
   renderPlayerBoards(s);
+
+  if (s.phase === "task_draft") {
+    show("draftView");
+    hide("playView");
+    renderDraft(s);
+    return;
+  }
+  show("playView");
+  hide("draftView");
 
   const taskDiv = el("taskList");
   taskDiv.innerHTML = "<b>과제</b><br>";
@@ -256,6 +333,9 @@ function renderDeepSeaCrew(s) {
     table.innerHTML = `<b>트릭 #${s.trick_number}</b>`;
   }
 
+  el("nextTrickBtn").classList.toggle("hidden", !s.awaiting_next);
+  el("nextTrickBtn").onclick = () => ws.send(JSON.stringify({ type: "next" }));
+
   const sigDiv = el("signals");
   const sigEntries = Object.entries(s.signals);
   sigDiv.innerHTML = sigEntries.length
@@ -263,17 +343,20 @@ function renderDeepSeaCrew(s) {
       sigEntries.map(([p, sig]) => `P${p}=${sig.card}(${sig.marker})`).join("  ")
     : "";
 
-  const isMyTurn = s.player_to_act === s.seat;
+  // gated by awaiting_next too: the trick that just finished must be
+  // acknowledged via "다음" before anyone (including the next leader) can act
+  const isMyTurn = s.player_to_act === s.seat && !s.awaiting_next;
   const actingPlayer = s.player_to_act !== null ? s.players[s.player_to_act] : null;
   const actingIsAi = actingPlayer && actingPlayer.kind === "ai";
-  el("turnIndicator").textContent =
-    s.player_to_act === null
-      ? "게임 종료"
-      : isMyTurn
-      ? "당신 차례"
-      : actingIsAi
-      ? `${actingPlayer.name} 생각 중...`
-      : `P${s.player_to_act} 차례 대기`;
+  el("turnIndicator").textContent = s.awaiting_next
+    ? "트릭 결과를 확인하고 [다음]을 누르세요"
+    : s.player_to_act === null
+    ? "게임 종료"
+    : isMyTurn
+    ? "당신 차례"
+    : actingIsAi
+    ? `${actingPlayer.name} 생각 중...`
+    : `P${s.player_to_act} 차례 대기`;
 
   const handDiv = el("hand");
   handDiv.innerHTML = "";
@@ -408,7 +491,7 @@ el("createBtn").onclick = async () => {
     return;
   }
   const name = el("createName").value.trim() || "player";
-  connect(data.code, name);
+  showSeatPicker(data.code, name);
 };
 
 el("joinBtn").onclick = () => {
@@ -418,7 +501,7 @@ el("joinBtn").onclick = () => {
     alert("방 코드를 입력하세요");
     return;
   }
-  connect(code, name);
+  showSeatPicker(code, name);
 };
 
 el("addAiBtn").onclick = () =>

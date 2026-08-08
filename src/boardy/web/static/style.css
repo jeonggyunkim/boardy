@@ -9,6 +9,10 @@ button { margin: 0.4rem 0.4rem 0.4rem 0; padding: 0.4rem 0.8rem; cursor: pointer
 button:disabled { opacity: 0.4; cursor: not-allowed; }
 #seatList { list-style: none; padding: 0; }
 #seatList li { padding: 0.2rem 0; }
+#seatButtons { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.6rem 0; }
+.seat-btn { text-align: left; padding: 0.6rem 0.9rem; border-radius: 6px; border: 1px solid #355; background: #132a3a; }
+.seat-btn:not(:disabled) { border-color: #8ab; cursor: pointer; }
+.seat-btn:not(:disabled):hover { background: #1c3a4f; }
 .card {
   display: inline-flex; align-items: center; justify-content: center;
   width: 2.4rem; height: 3.4rem; margin: 0.15rem; border-radius: 6px;
@@ -75,6 +79,20 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   position: absolute; inset: 0; border-radius: 6px; border: 1px dashed #355;
 }
 .pile-count { margin-top: 0.3rem; font-size: 0.75rem; color: #8ab; }
+.player-tasks { margin-top: 0.3rem; font-size: 0.7rem; color: #cde; max-width: 8rem; }
+.player-tasks .mini-task { padding: 0.1rem 0; }
+.player-tasks .mini-task.ok { color: #6f6; }
+.player-tasks .mini-task.failed { color: #f66; text-decoration: line-through; }
+
+/* Task draft pool */
+#draftPool { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.6rem 0; }
+.draft-task {
+  text-align: left; padding: 0.5rem 0.7rem; border-radius: 6px;
+  border: 1px solid #355; background: #132a3a; color: inherit; cursor: not-allowed;
+}
+.draft-task.pickable { cursor: pointer; border-color: #8ab; }
+.draft-task.pickable:hover { background: #1c3a4f; }
+.draft-task .diff { color: #8ab; font-size: 0.75rem; margin-right: 0.4rem; }
 
 .trick-card-wrap {
   display: inline-block; transition: transform 0.75s cubic-bezier(.4, 0, .2, 1), opacity 0.75s ease-in;

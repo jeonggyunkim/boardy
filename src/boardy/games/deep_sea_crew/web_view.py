@@ -38,7 +38,8 @@ def serialize_seat(state: GameState, seat: int, players_meta: list[dict]) -> dic
             {
                 "id": t.id,
                 "owner": t.owner,
-                "describe": t.describe_assigned(),
+                "describe": t.describe_assigned(),  # "P0: ..." -- for the flat mission-wide list
+                "describe_plain": t.describe(),  # no owner prefix -- for display already grouped by player
                 "resolved": t.resolved,
                 "success": t.success,
             }

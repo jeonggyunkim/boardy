@@ -26,6 +26,12 @@
     </div>
   </section>
 
+  <section id="seatPicker" class="hidden">
+    <h2>방 코드: <span id="pickerRoomCode"></span> — 좌석 선택</h2>
+    <div id="seatButtons"></div>
+    <p class="hint">오목이면 Player 0 = 흑, Player 1 = 백입니다.</p>
+  </section>
+
   <section id="lobby" class="hidden">
     <h2>방 코드: <span id="roomCode"></span></h2>
     <ul id="seatList"></ul>
@@ -44,12 +50,21 @@
 
     <div id="dscView">
       <div id="playerBoards"></div>
-      <div id="taskList"></div>
-      <div id="table"></div>
-      <div id="signals"></div>
-      <h3>내 손패 (<span id="turnIndicator"></span>)</h3>
-      <div id="hand"></div>
-      <button id="commBtn" disabled>선택한 카드로 통신하기</button>
+
+      <div id="draftView">
+        <h3><span id="draftStatus"></span></h3>
+        <div id="draftPool"></div>
+      </div>
+
+      <div id="playView">
+        <div id="taskList"></div>
+        <div id="table"></div>
+        <button id="nextTrickBtn" class="hidden">다음</button>
+        <div id="signals"></div>
+        <h3>내 손패 (<span id="turnIndicator"></span>)</h3>
+        <div id="hand"></div>
+        <button id="commBtn" disabled>선택한 카드로 통신하기</button>
+      </div>
     </div>
 
     <div id="gomokuView" class="hidden">
