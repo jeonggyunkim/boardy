@@ -13,7 +13,7 @@ import torch
 from torch import nn
 
 from .board import DEFAULT_SIZE, Board
-from .encoding import NUM_PLANES, encode_board, legal_action_mask
+from .encoding import NUM_PLANES, encode_board, legal_action_mask, legal_action_mask_from_moves
 
 
 class ConvBlock(nn.Module):
@@ -62,15 +62,21 @@ class PolicyValueNet(nn.Module):
         return logits, value
 
     @torch.no_grad()
-    def predict(self, board: Board) -> tuple[np.ndarray, float]:
+    def predict(self, board: Board, legal_moves: list[tuple[int, int]] | None = None) -> tuple[np.ndarray, float]:
         """Policy over all cells (masked to legal, current-player-relative)
-        + scalar value in [-1, 1] from the current player-to-move's view."""
+        + scalar value in [-1, 1] from the current player-to-move's view.
+        Pass `legal_moves` if the caller already computed it (e.g. MCTS
+        expansion) -- Board.legal_moves() re-derives Black's Renju-forbidden
+        cells from scratch every call, so recomputing it here too would
+        silently double that cost for no reason."""
         self.eval()
         obs = encode_board(board)
         x = torch.from_numpy(obs).float().unsqueeze(0)
         logits, value = self.forward(x)
         logits = logits.squeeze(0).numpy()
-        mask = legal_action_mask(board).astype(bool)
+        mask = (
+            legal_action_mask(board) if legal_moves is None else legal_action_mask_from_moves(legal_moves, board.size)
+        ).astype(bool)
         logits = np.where(mask, logits, -1e9)
         probs = np.exp(logits - logits.max())
         probs *= mask

@@ -44,8 +44,16 @@ def encode_board(board: Board) -> np.ndarray:
 
 
 def legal_action_mask(board: Board) -> np.ndarray:
-    n = board.size
-    mask = np.zeros(n * n, dtype=np.float32)
-    for r, c in board.legal_moves():
-        mask[r * n + c] = 1.0
+    return legal_action_mask_from_moves(board.legal_moves(), board.size)
+
+
+def legal_action_mask_from_moves(moves: list[tuple[int, int]], size: int) -> np.ndarray:
+    """Same as legal_action_mask, but takes an already-computed move list --
+    Board.legal_moves() re-derives Black's Renju-forbidden cells from
+    scratch every call (see renju.py), which isn't cheap, so callers that
+    already have the list (e.g. MCTS expansion) should pass it through
+    instead of paying for a second full scan."""
+    mask = np.zeros(size * size, dtype=np.float32)
+    for r, c in moves:
+        mask[r * size + c] = 1.0
     return mask

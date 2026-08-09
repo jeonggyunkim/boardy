@@ -21,15 +21,38 @@ from .network import PolicyValueNet
 
 
 class Node:
-    __slots__ = ("board", "prior", "children", "visit_count", "value_sum", "expanded")
+    # `board` is None until first visited -- see ensure_board(). Board.clone()
+    # + play() aren't free (Black's move legality re-derives Renju forbidden
+    # cells from scratch), and _expand() creates one child per legal move
+    # (up to size*size of them on an empty board); with only num_simulations
+    # visits to go around, most siblings of a popular child are never
+    # actually traversed into, so building their boards eagerly was pure
+    # waste. Selection itself (_puct_select) only needs prior/visit_count/
+    # value, none of which require a materialized board.
+    __slots__ = ("board", "parent_board", "move", "prior", "children", "visit_count", "value_sum", "expanded")
 
-    def __init__(self, board: Board, prior: float = 0.0) -> None:
+    def __init__(
+        self,
+        prior: float = 0.0,
+        board: Board | None = None,
+        parent_board: Board | None = None,
+        move: tuple[int, int] | None = None,
+    ) -> None:
         self.board = board
+        self.parent_board = parent_board
+        self.move = move
         self.prior = prior
         self.children: dict[str, Node] = {}
         self.visit_count = 0
         self.value_sum = 0.0
         self.expanded = False
+
+    def ensure_board(self) -> Board:
+        if self.board is None:
+            self.board = self.parent_board.clone()
+            self.board.play(*self.move)
+            self.parent_board = None  # done with it, let it go
+        return self.board
 
     @property
     def value(self) -> float:
@@ -52,14 +75,15 @@ def _expand(node: Node, net: PolicyValueNet) -> float:
     if node.is_terminal:
         return _terminal_value(node.board)
 
-    probs, value = net.predict(node.board)
+    legal_moves = node.board.legal_moves()
+    probs, value = net.predict(node.board, legal_moves=legal_moves)
     size = node.board.size
-    for r, c in node.board.legal_moves():
+    for r, c in legal_moves:
         action = f"{r},{c}"
         idx = action_to_index(action, size)
-        child_board = node.board.clone()
-        child_board.play(r, c)
-        node.children[action] = Node(child_board, prior=float(probs[idx]))
+        # Board not built yet -- see Node.ensure_board(). Most of these
+        # children will never be selected within this search's budget.
+        node.children[action] = Node(prior=float(probs[idx]), parent_board=node.board, move=(r, c))
     node.expanded = True
     return value
 
@@ -91,7 +115,7 @@ def run_mcts(
     add_noise: bool = False,
 ) -> dict[str, float]:
     """Return a visit-count policy (normalized) over legal actions at the root."""
-    root = Node(root_board.clone())
+    root = Node(board=root_board.clone())
     _expand(root, net)
     if add_noise:
         add_dirichlet_noise(root)
@@ -101,6 +125,7 @@ def run_mcts(
         node = root
         while node.expanded and not node.is_terminal:
             _, node = _puct_select(node, c_puct)
+            node.ensure_board()
             path.append(node)
 
         leaf_value = _expand(node, net) if not node.expanded else node.value
