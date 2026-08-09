@@ -10,3 +10,4 @@ node_modules/
 *.ckpt
 .claude/
 checkpoints/
+logs/

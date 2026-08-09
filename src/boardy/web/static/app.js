@@ -430,7 +430,10 @@ function renderPlaying(s) {
     for (const seat of playOrderFor(s.current_leader, s.num_players)) {
       if (seat in s.trick_in_progress) table.appendChild(trickCardSpan(seat, s.trick_in_progress[seat]));
     }
-  } else {
+  } else if (s.trick_number <= s.hand_size) {
+    // trick_number is already incremented past hand_size once the last
+    // trick resolves (see engine.py's _complete_trick) -- there's no
+    // "트릭 #14" when the hand only has 13 tricks, so don't print one.
     table.innerHTML = `<b>트릭 #${s.trick_number}</b>`;
   }
 

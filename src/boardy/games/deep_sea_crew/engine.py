@@ -224,23 +224,19 @@ class GameState:
     def communicate(self, player: int, card: Card) -> Signal:
         if self.phase != "trick_ready":
             raise ValueError("Communication is only allowed while waiting for players to ready up")
-        if player == self.current_leader:
-            raise ValueError("The player leading this trick cannot communicate")
         if player in self.ready_seats:
             raise ValueError("Already marked ready -- can no longer communicate this window")
         return self.comms.communicate(player, card, self.hands[player])
 
     def communicable_seats(self) -> list[int]:
         """Seats currently allowed to attempt a Sonar signal: only during
-        the "trick_ready" window, never the trick's leader, and not once a
-        seat has already marked itself ready."""
+        the "trick_ready" window, and not once a seat has already marked
+        itself ready. The trick's leader is allowed too -- they haven't
+        led yet at this point (the trick hasn't started), so they're in
+        the same boat as everyone else."""
         if self.phase != "trick_ready":
             return []
-        return [
-            seat
-            for seat in range(self.num_players)
-            if seat != self.current_leader and seat not in self.ready_seats and self.comms.can_communicate(seat)
-        ]
+        return [seat for seat in range(self.num_players) if seat not in self.ready_seats and self.comms.can_communicate(seat)]
 
 
 def new_game(

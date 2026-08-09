@@ -49,20 +49,17 @@ def test_cannot_play_out_of_turn():
 def test_can_communicate_before_trick_starts():
     state = make_bare_state(phase="trick_ready")
     state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7)], [Card(Suit.GREEN, 2)]]
-    # player 0 is the leader (make_bare_state default) and leaders can't
-    # communicate (see test_leader_cannot_communicate below) -- use player 1
     signal = state.communicate(1, Card(Suit.BLUE, 7))
     assert signal.card == Card(Suit.BLUE, 7)
 
 
-def test_leader_cannot_communicate():
+def test_leader_can_also_communicate_before_the_trick_starts():
     state = make_bare_state(phase="trick_ready")
     state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7)], [Card(Suit.GREEN, 2)]]
-    try:
-        state.communicate(0, Card(Suit.GREEN, 4))
-        assert False, "expected ValueError"
-    except ValueError:
-        pass
+    # player 0 is the leader (make_bare_state default) -- the trick hasn't
+    # started yet, so they're allowed to signal just like anyone else
+    signal = state.communicate(0, Card(Suit.GREEN, 4))
+    assert signal.card == Card(Suit.GREEN, 4)
 
 
 def test_cannot_communicate_a_submarine_card():
@@ -86,12 +83,12 @@ def test_cannot_communicate_once_ready():
         pass
 
 
-def test_communicable_seats_excludes_leader_ready_seats_and_stops_once_playing():
+def test_communicable_seats_includes_leader_excludes_ready_seats_and_stops_once_playing():
     state = make_bare_state(phase="trick_ready")
     state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7)], [Card(Suit.GREEN, 2)]]
-    assert state.communicable_seats() == [1, 2]
+    assert state.communicable_seats() == [0, 1, 2]
     state.mark_ready(2)
-    assert state.communicable_seats() == [1]
+    assert state.communicable_seats() == [0, 1]
     state.auto_ready_up()
     assert state.phase == "playing"
     assert state.communicable_seats() == []

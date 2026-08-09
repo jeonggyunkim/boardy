@@ -13,14 +13,21 @@ deployment.
 from __future__ import annotations
 
 import asyncio
+import json
 import random
 import string
+import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 from fastapi import WebSocket
 
 from ..core.game_spec import GameSpec, Player
+
+# One JSONL file per played game, for later debugging -- see Room._log_event.
+# Gitignored (see .gitignore); not meant to be committed.
+LOG_DIR = Path(__file__).resolve().parent.parent.parent.parent / "logs"
 
 
 def make_room_code(rng: random.Random | None = None) -> str:
@@ -49,6 +56,10 @@ class Room:
     # explicitly acknowledges (see acknowledge_next), rather than either
     # blinking past it or wasting a fixed sleep on a room nobody's watching.
     awaiting_next: bool = False
+    # Path to this game's debug log (see _open_log/_log_event), set once
+    # the room actually starts. None before that, or if the log couldn't
+    # be opened -- logging is a debugging aid, never load-bearing.
+    log_path: Path | None = field(default=None, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.seats:
@@ -107,6 +118,36 @@ class Room:
         if not self.is_full:
             raise ValueError("Room is not full yet")
         self.state = self.spec.new_game(self.num_players, self.difficulty, seed)
+        self._open_log()
+
+    def _open_log(self) -> None:
+        try:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            stamp = time.strftime("%Y%m%dT%H%M%S")
+            self.log_path = LOG_DIR / f"{self.spec.slug}_{self.code}_{stamp}.jsonl"
+            self._log_event(
+                {
+                    "type": "start",
+                    "game": self.spec.slug,
+                    "num_players": self.num_players,
+                    "difficulty": self.difficulty,
+                    "players": self.players_meta(),
+                }
+            )
+        except OSError:
+            self.log_path = None
+
+    def _log_event(self, event: dict) -> None:
+        """Append one JSON line for later debugging -- see docs/PLAN.md.
+        Never allowed to break gameplay: any failure here is swallowed."""
+        if self.log_path is None:
+            return
+        try:
+            line = json.dumps({"ts": time.time(), **event}, ensure_ascii=False, default=str)
+            with open(self.log_path, "a", encoding="utf-8") as f:
+                f.write(line + "\n")
+        except OSError:
+            pass
 
     async def broadcast_lobby(self) -> None:
         payload = {
@@ -127,6 +168,15 @@ class Room:
     async def broadcast(self) -> None:
         assert self.state is not None
         meta = self.players_meta()
+        # Full-information snapshot (every seat's view, including hidden
+        # hands) so a later debugging request has the whole game to look
+        # back through, not just whatever a human happened to see.
+        self._log_event(
+            {
+                "type": "state",
+                "views": {i: self.spec.serialize_seat(self.state, i, meta) for i in range(self.num_players)},
+            }
+        )
         for seat, s in enumerate(self.seats):
             if s and s.kind == "human" and s.ws is not None:
                 try:
