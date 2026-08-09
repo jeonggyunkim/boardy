@@ -98,7 +98,6 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .player-tasks .mini-task { padding: 0.1rem 0; }
 .player-tasks .mini-task.ok { color: #6f6; }
 .player-tasks .mini-task.failed { color: #f66; text-decoration: line-through; }
-.ready-mark { margin-top: 0.3rem; font-size: 0.7rem; color: #6f6; }
 
 /* "trick_ready" window: review the finished trick, then communicate/ready */
 #readyStatus { font-size: 0.95rem; }

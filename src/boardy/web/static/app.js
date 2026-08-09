@@ -258,7 +258,11 @@ function renderPlayerBoards(s) {
     const commanderMark = i === s.commander ? "\u{1F451}" : "";
     const leaderMark = i === s.current_leader ? "\u{25B6}" : "";
     const marks = [commanderMark, leaderMark].filter(Boolean).join(" ");
-    name.textContent = `${marks ? marks + " " : ""}P${i}${i === s.seat ? "(나)" : ""}${meta.name ? " " + meta.name : ""}`;
+    // who's already readied up for the next trick (see renderReady) --
+    // shown right next to the name instead of buried at the bottom of
+    // the board, so it's easy to scan across players at a glance.
+    const readyMark = s.phase === "trick_ready" && s.ready_seats.includes(i) ? " ✅" : "";
+    name.textContent = `${marks ? marks + " " : ""}P${i}${i === s.seat ? "(나)" : ""}${meta.name ? " " + meta.name : ""}${readyMark}`;
     board.appendChild(name);
 
     const pile = document.createElement("div");
@@ -305,14 +309,6 @@ function renderPlayerBoards(s) {
       const sigWrap = cardWithToken(cardEl(sig.card, { clickable: false }), sig.marker);
       sigWrap.classList.add("signal-slot");
       board.appendChild(sigWrap);
-    }
-
-    // who's already readied up for the next trick (see renderReady)
-    if (s.phase === "trick_ready" && s.ready_seats.includes(i)) {
-      const readyMark = document.createElement("div");
-      readyMark.className = "ready-mark";
-      readyMark.textContent = "✅ 준비 완료";
-      board.appendChild(readyMark);
     }
 
     container.appendChild(board);
