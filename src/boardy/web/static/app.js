@@ -104,6 +104,44 @@ function connect(code, name, seat) {
   el("roomCode").textContent = code.toUpperCase();
 }
 
+// Polls /api/rooms/{code} while the seat picker is up so a seat someone
+// else just claimed shows as taken here too, instead of a stale snapshot
+// from the moment this screen opened -- otherwise two people looking at
+// the picker at the same time could both think an already-taken seat is
+// free and race for it.
+let seatPickerInterval = null;
+// Remembered so a failed seat claim (lost a race to someone else who
+// clicked the same seat first -- server rejects with "error") can resume
+// the picker instead of leaving it frozen on the stale pre-click state.
+let seatPickerCode = null;
+let seatPickerName = null;
+
+function stopSeatPickerPolling() {
+  if (seatPickerInterval !== null) {
+    clearInterval(seatPickerInterval);
+    seatPickerInterval = null;
+  }
+}
+
+function renderSeatButtons(code, name, info) {
+  const container = el("seatButtons");
+  container.innerHTML = "";
+  info.players.forEach((p, i) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "seat-btn";
+    const taken = !!p.name;
+    btn.disabled = taken || info.started;
+    btn.textContent = taken ? `Player ${i} — ${p.name} (${p.kind}, 이미 참가함)` : `Player ${i} — 비어 있음`;
+    btn.onclick = () => {
+      stopSeatPickerPolling();
+      if (lastSetup) lastSetup.seat = i;
+      connect(code, name, i);
+    };
+    container.appendChild(btn);
+  });
+}
+
 // Shows the empty/taken seats for `code` and lets the user click one to
 // join as that specific player number (Gomoku: seat 0 = Black, 1 = White).
 async function showSeatPicker(code, name) {
@@ -116,28 +154,41 @@ async function showSeatPicker(code, name) {
   hide("landing");
   show("seatPicker");
   el("pickerRoomCode").textContent = code.toUpperCase();
-  const container = el("seatButtons");
-  container.innerHTML = "";
-  info.players.forEach((p, i) => {
-    const btn = document.createElement("button");
-    btn.type = "button";
-    btn.className = "seat-btn";
-    const taken = !!p.name;
-    btn.disabled = taken || info.started;
-    btn.textContent = taken ? `Player ${i} — ${p.name} (${p.kind}, 이미 참가함)` : `Player ${i} — 비어 있음`;
-    btn.onclick = () => {
-      if (lastSetup) lastSetup.seat = i;
-      connect(code, name, i);
-    };
-    container.appendChild(btn);
-  });
+  seatPickerCode = code;
+  seatPickerName = name;
+  renderSeatButtons(code, name, info);
+
+  stopSeatPickerPolling();
+  seatPickerInterval = setInterval(async () => {
+    let fresh;
+    try {
+      fresh = await (await fetch(`/api/rooms/${code}`)).json();
+    } catch {
+      return; // transient network hiccup -- just try again next tick
+    }
+    if (fresh.error) {
+      stopSeatPickerPolling();
+      return;
+    }
+    renderSeatButtons(code, name, fresh);
+  }, 1500);
 }
 
 function handleMessage(msg) {
   if (msg.type === "error") {
     alert(msg.message);
+    // If this happened while claiming a seat (e.g. lost a race to
+    // someone else who grabbed it first -- see the "seat taken" case in
+    // server.py's ws handler), the picker is still open but now stale;
+    // refresh it instead of leaving it stuck on the pre-click snapshot.
+    if (seatPickerCode && !el("seatPicker").classList.contains("hidden")) {
+      showSeatPicker(seatPickerCode, seatPickerName);
+    }
     return;
   }
+  // Any other real message means we're already connected -- definitely
+  // past picking a seat, regardless of which code path got us here.
+  stopSeatPickerPolling();
   if (msg.type === "joined") {
     mySeat = msg.seat;
     trickReadyAckedFor = null;
@@ -189,6 +240,7 @@ function handleMessage(msg) {
 }
 
 el("homeBtn").onclick = () => {
+  stopSeatPickerPolling();
   if (ws) {
     ws.onclose = null;
     ws.close();
