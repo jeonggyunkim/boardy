@@ -16,6 +16,7 @@
       <p><a id="rulesLink" href="#" target="_blank" rel="noopener">규칙서 보기 ↗</a></p>
       <label>인원수 <input id="np" type="number" min="2" max="5" value="3"></label>
       <label id="diffLabel">난이도 <input id="diff" type="number" min="1" max="20" value="8"></label>
+      <label id="helperLabel">카드 도우미 (지금까지 나온 카드 표시) <input id="cardHelperToggle" type="checkbox"></label>
       <label>이름 <input id="createName" value="player"></label>
       <button id="createBtn">방 만들기</button>
     </div>
@@ -53,6 +54,8 @@
     <div id="dscView">
       <div id="playerBoards"></div>
 
+      <div id="cardHelperTable" class="hidden"></div>
+
       <div id="draftView">
         <h3><span id="draftStatus"></span></h3>
         <div id="draftPool"></div>
@@ -67,7 +70,7 @@
         <div id="readyBlock">
           <p class="hint">통신 가능한 카드는 카드 위/가운데/아래에 토큰이 표시됩니다 (최고/유일/최저).</p>
           <div id="readyHand"></div>
-          <button id="readyBtn">준비</button>
+          <button id="readyBtn">힌트 사용 안 함</button>
         </div>
       </div>
 

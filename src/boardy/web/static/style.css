@@ -69,6 +69,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .gomoku-point.legal { cursor: pointer; }
 .gomoku-point.legal.turn-white:hover { background: rgba(255, 255, 255, 0.35); }
 .gomoku-point.legal.turn-black:hover { background: rgba(0, 0, 0, 0.35); }
+.gomoku-point.forbidden { cursor: not-allowed; }
+.gomoku-point.forbidden:hover { background: rgba(227, 51, 51, 0.35); }
 .gomoku-point .stone {
   position: absolute; inset: 2px; border-radius: 50%;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
@@ -116,3 +118,19 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .trick-card-wrap.winner .card { border-color: #ffd54a; }
 
 #postGameControls { margin-top: 1rem; }
+
+/* Card helper: which cards have already appeared, one row per suit */
+#cardHelperTable { margin: 0.6rem 0; }
+.card-helper { border-collapse: collapse; }
+.card-helper th { text-align: left; font-size: 0.75rem; color: #8ab; padding-right: 0.5rem; }
+.card-helper-cell {
+  width: 1.6rem; height: 1.6rem; text-align: center; font-size: 0.8rem;
+  font-weight: bold; border-radius: 4px; color: #fff;
+}
+.card-helper-cell.unseen { opacity: 0.25; }
+.card-helper-cell.seen { opacity: 1; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4) inset; }
+.card-helper-cell.yellow { background: #b8960a; }
+.card-helper-cell.pink { background: #c23b7a; }
+.card-helper-cell.green { background: #2c8a4b; }
+.card-helper-cell.blue { background: #2662b0; }
+.card-helper-cell.submarine { background: #444; }

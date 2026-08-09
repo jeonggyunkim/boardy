@@ -11,6 +11,10 @@ let trickReadyAckedFor = null;
 // comm token was already spent (see renderReady) -- avoids resending on
 // every re-render while waiting for the server's ack.
 let autoReadySentFor = null;
+// Personal display preference, set from #cardHelperToggle when creating a
+// Deep Sea Crew room (see createBtn) -- not game state, just a client-side
+// render toggle, so it isn't reset on "다시 플레이".
+let cardHelperEnabled = false;
 // {game, num_players, difficulty, name, seat, aiModes} for the room THIS
 // client created, so "다시 플레이" can spin up an equivalent one -- null
 // if this client joined someone else's room instead (nothing to replay).
@@ -87,6 +91,7 @@ function updateGameFields() {
   el("np").max = g.max_players;
   el("np").value = Math.min(Math.max(parseInt(el("np").value, 10) || g.min_players, g.min_players), g.max_players);
   el("diffLabel").classList.toggle("hidden", g.slug !== "deep_sea_crew");
+  el("helperLabel").classList.toggle("hidden", g.slug !== "deep_sea_crew");
   el("rulesLink").href = `/rules/${g.slug}`;
 }
 
@@ -193,6 +198,7 @@ el("homeBtn").onclick = () => {
   mySeat = null;
   trickReadyAckedFor = null;
   autoReadySentFor = null;
+  cardHelperEnabled = false;
   pendingAutoSetup = null;
   hide("game");
   hide("seatPicker");
@@ -260,6 +266,55 @@ function renderTrickRecord(container, record, numPlayers) {
   for (const seat of playOrderFor(record.leader, numPlayers)) {
     if (seat in record.cards) container.appendChild(trickCardSpan(seat, record.cards[seat], seat == record.winner));
   }
+}
+
+const CARD_HELPER_SUITS = ["yellow", "pink", "green", "blue", "submarine"];
+const CARD_HELPER_LABEL_KO = { yellow: "노랑", pink: "분홍", green: "초록", blue: "파랑", submarine: "잠수함" };
+const CARD_HELPER_CODE = { yellow: "Y", pink: "P", green: "G", blue: "B", submarine: "S" };
+
+// Optional per-client display aid: a 5-row (4 colors + submarine) table
+// of every card, with the ones already seen (played, in any completed
+// or in-progress trick) highlighted -- opt-in via #cardHelperToggle when
+// creating a room (see createBtn), not sent to or computed by the
+// server since it's derivable entirely from already-public state.
+function renderCardHelper(s) {
+  const container = el("cardHelperTable");
+  if (!cardHelperEnabled) {
+    hide("cardHelperTable");
+    return;
+  }
+  show("cardHelperTable");
+
+  const seen = new Set();
+  s.history.forEach((rec) => Object.values(rec.cards).forEach((code) => seen.add(code)));
+  Object.values(s.trick_in_progress).forEach((code) => seen.add(code));
+
+  container.innerHTML = "";
+  const heading = document.createElement("div");
+  heading.className = "hint";
+  heading.textContent = "카드 도우미 (지금까지 나온 카드)";
+  container.appendChild(heading);
+
+  const table = document.createElement("table");
+  table.className = "card-helper";
+  CARD_HELPER_SUITS.forEach((suit) => {
+    const row = document.createElement("tr");
+    const label = document.createElement("th");
+    label.textContent = CARD_HELPER_LABEL_KO[suit];
+    row.appendChild(label);
+    const maxRank = suit === "submarine" ? 4 : 9;
+    for (let rank = 1; rank <= 9; rank++) {
+      const cell = document.createElement("td");
+      if (rank <= maxRank) {
+        const code = `${CARD_HELPER_CODE[suit]}${rank}`;
+        cell.textContent = rank;
+        cell.className = `card-helper-cell ${suit} ` + (seen.has(code) ? "seen" : "unseen");
+      }
+      row.appendChild(cell);
+    }
+    table.appendChild(row);
+  });
+  container.appendChild(table);
 }
 
 function renderPlayerBoards(s) {
@@ -409,11 +464,11 @@ function renderReady(s) {
   for (let i = 0; i < s.num_players; i++) {
     if (!s.ready_seats.includes(i)) notReady.push(`P${i}`);
   }
-  el("readyStatus").textContent = notReady.length ? `대기 중: ${notReady.join(", ")}` : "모두 준비 완료";
+  el("readyStatus").textContent = notReady.length ? `대기 중: ${notReady.join(", ")}` : "모두 결정 완료";
 
   // Nothing left to decide if the one-time token is already spent (used
   // earlier this game, or leader status no longer excludes anyone) --
-  // auto-ready instead of making the player click "준비" for a choice
+  // auto-ready instead of making the player click a button for a choice
   // that isn't actually available. Guarded by trick number so a
   // re-render (e.g. another player's broadcast) doesn't resend every time
   // while waiting for the server's ack (mark_ready is idempotent anyway,
@@ -443,7 +498,7 @@ function renderReady(s) {
 
   const readyBtn = el("readyBtn");
   readyBtn.disabled = amReady;
-  readyBtn.textContent = amReady ? "준비 완료 (대기 중...)" : "준비";
+  readyBtn.textContent = amReady ? "결정 완료 (대기 중...)" : "힌트 사용 안 함";
   readyBtn.onclick = () => ws.send(JSON.stringify({ type: "ready" }));
 }
 
@@ -513,6 +568,7 @@ function renderDeepSeaCrew(s) {
   }
 
   renderPlayerBoards(s);
+  renderCardHelper(s);
 
   hide("draftView");
   hide("readyView");
@@ -560,6 +616,7 @@ function renderGomoku(s) {
 
 const GOMOKU_CELL = 32; // px between line intersections
 const GOMOKU_MARGIN = 20; // px padding so edge stones aren't clipped
+const FORBIDDEN_LABEL_KO = { double_three: "쌍삼", double_four: "쌍사", overline: "장목(6목 이상)" };
 
 function renderGomokuBoard(s, isMyTurn) {
   const legalSet = new Set(s.legal_moves);
@@ -594,14 +651,19 @@ function renderGomokuBoard(s, isMyTurn) {
       const value = s.board[r * s.size + c];
       const key = `${r},${c}`;
       const legal = isMyTurn && legalSet.has(key);
+      const forbiddenReason = isMyTurn ? s.forbidden_reasons[key] : undefined;
       // legal implies it's my turn, so s.my_color is the acting player's
       // color here -- highlight legal points in that color, not always white.
       const point = document.createElement("button");
       point.type = "button";
-      point.className = "gomoku-point" + (legal ? ` legal turn-${s.my_color}` : "");
+      point.className = "gomoku-point" + (legal ? ` legal turn-${s.my_color}` : forbiddenReason ? " forbidden" : "");
       point.style.left = `${GOMOKU_MARGIN + c * GOMOKU_CELL}px`;
       point.style.top = `${GOMOKU_MARGIN + r * GOMOKU_CELL}px`;
-      point.disabled = !legal;
+      // Forbidden points stay unplayable but are still clickable (unlike
+      // truly disabled ones) so clicking one can explain why, instead of
+      // just silently doing nothing.
+      point.disabled = !legal && !forbiddenReason;
+      if (forbiddenReason) point.title = `착수 금지: ${FORBIDDEN_LABEL_KO[forbiddenReason] || forbiddenReason}`;
       if (s.last_move && s.last_move[0] === r && s.last_move[1] === c) point.classList.add("last-move");
       if (value !== 0) {
         const stone = document.createElement("span");
@@ -609,7 +671,11 @@ function renderGomokuBoard(s, isMyTurn) {
         point.appendChild(stone);
       }
       point.onclick = () => {
-        if (legal) ws.send(JSON.stringify({ type: "play", action: key }));
+        if (legal) {
+          ws.send(JSON.stringify({ type: "play", action: key }));
+        } else if (forbiddenReason) {
+          alert(`이 자리는 금수(${FORBIDDEN_LABEL_KO[forbiddenReason] || forbiddenReason})라 둘 수 없습니다.`);
+        }
       };
       boardDiv.appendChild(point);
     }
@@ -635,6 +701,7 @@ el("createBtn").onclick = async () => {
     return;
   }
   const name = el("createName").value.trim() || "player";
+  cardHelperEnabled = game === "deep_sea_crew" && el("cardHelperToggle").checked;
   // Only a room THIS client created (not one it joined) has a known-full
   // setup to replay -- seat gets filled in once picked, aiModes as they're
   // added (see the seatButtons/addAiBtn handlers).
@@ -649,6 +716,7 @@ el("joinBtn").onclick = () => {
     alert("방 코드를 입력하세요");
     return;
   }
+  cardHelperEnabled = false; // no helper toggle in the join flow
   lastSetup = null;
   showSeatPicker(code, name);
 };
