@@ -2,10 +2,11 @@ let ws = null;
 let mySeat = null;
 let lastState = null;
 let games = [];
-// Trick number whose table display was cleared by clicking "다음", so it
-// stays cleared across re-renders until the next trick actually starts
-// (see renderDeepSeaCrew / the nextTrickBtn handler).
-let acknowledgedTrick = null;
+// Trick number for which the "확인" step (reviewing the just-finished
+// trick) has been done -- either clicked, or skipped because there was
+// nothing to review (trick 1). Communication/준비 UI only shows once this
+// matches the current trick_ready window's trick number (see renderReady).
+let trickReadyAckedFor = null;
 // {game, num_players, difficulty, name, seat, aiModes} for the room THIS
 // client created, so "다시 플레이" can spin up an equivalent one -- null
 // if this client joined someone else's room instead (nothing to replay).
@@ -130,7 +131,7 @@ function handleMessage(msg) {
   }
   if (msg.type === "joined") {
     mySeat = msg.seat;
-    acknowledgedTrick = null;
+    trickReadyAckedFor = null;
     hide("landing");
     hide("seatPicker");
     show("lobby");
@@ -185,7 +186,7 @@ el("homeBtn").onclick = () => {
   }
   lastState = null;
   mySeat = null;
-  acknowledgedTrick = null;
+  trickReadyAckedFor = null;
   pendingAutoSetup = null;
   hide("game");
   hide("seatPicker");
@@ -251,8 +252,13 @@ function renderPlayerBoards(s) {
     const name = document.createElement("div");
     name.className = "player-name";
     const meta = s.players[i] || {};
-    const leaderMark = i === s.current_leader ? "\u{1F451} " : "";
-    name.textContent = `${leaderMark}P${i}${i === s.seat ? "(나)" : ""}${meta.name ? " " + meta.name : ""}`;
+    // 👑 = commander (fixed for the whole game, sets draft order); ▶ =
+    // this trick's leader (changes every trick, winner leads next) --
+    // these are two different things and can be different players.
+    const commanderMark = i === s.commander ? "\u{1F451}" : "";
+    const leaderMark = i === s.current_leader ? "\u{25B6}" : "";
+    const marks = [commanderMark, leaderMark].filter(Boolean).join(" ");
+    name.textContent = `${marks ? marks + " " : ""}P${i}${i === s.seat ? "(나)" : ""}${meta.name ? " " + meta.name : ""}`;
     board.appendChild(name);
 
     const pile = document.createElement("div");
@@ -301,6 +307,14 @@ function renderPlayerBoards(s) {
       board.appendChild(sigWrap);
     }
 
+    // who's already readied up for the next trick (see renderReady)
+    if (s.phase === "trick_ready" && s.ready_seats.includes(i)) {
+      const readyMark = document.createElement("div");
+      readyMark.className = "ready-mark";
+      readyMark.textContent = "✅ 준비 완료";
+      board.appendChild(readyMark);
+    }
+
     container.appendChild(board);
   }
 }
@@ -314,7 +328,7 @@ function renderDraft(s) {
     : actingIsAi
     ? `${actingPlayer.name} 과제 선택 중...`
     : `P${s.player_to_act} 과제 선택 대기`;
-  el("draftStatus").textContent = `\u{1F451} 사령관: P${s.current_leader}  |  ${turnText}`;
+  el("draftStatus").textContent = `\u{1F451} 사령관: P${s.commander}  |  ${turnText}`;
 
   const pool = el("draftPool");
   pool.innerHTML = "";
@@ -338,6 +352,117 @@ function renderDraft(s) {
   s.hand.forEach((code) => handDiv.appendChild(cardEl(code, { clickable: false })));
 }
 
+// The "trick_ready" phase: everyone must individually confirm before the
+// next trick starts (see engine.py's GameState.mark_ready). Two steps:
+// 1. If there's a just-finished trick to review, show it + "확인" --
+//    clicking clears it (purely a local display gate; the server already
+//    considers the window open regardless, see trickReadyAckedFor).
+// 2. Once acknowledged (or there was nothing to review, e.g. trick 1):
+//    show communicate-eligible hand cards + "준비", and who's already
+//    readied. Communicating is only possible in this exact window --
+//    after "확인", before clicking "준비" -- matching what the server
+//    actually enforces (GameState.communicate).
+function renderReady(s) {
+  const lastTrick = s.history.length ? s.history[s.history.length - 1] : null;
+  const needsAck = lastTrick && trickReadyAckedFor !== s.trick_number;
+
+  const reviewTable = el("trickReviewTable");
+  const confirmBtn = el("confirmBtn");
+  const readyBlock = el("readyBlock");
+
+  if (needsAck) {
+    el("readyStatus").textContent = "트릭 결과를 확인하세요";
+    reviewTable.innerHTML = "";
+    const heading = document.createElement("b");
+    heading.textContent = `트릭 #${lastTrick.number} - P${lastTrick.winner} 승리!`;
+    reviewTable.appendChild(heading);
+    reviewTable.appendChild(document.createElement("br"));
+    for (const seat of playOrderFor(lastTrick.leader, s.num_players)) {
+      if (seat in lastTrick.cards) reviewTable.appendChild(trickCardSpan(seat, lastTrick.cards[seat], seat == lastTrick.winner));
+    }
+    show("confirmBtn");
+    hide("readyBlock");
+    confirmBtn.onclick = () => {
+      // Keyed by s.trick_number (the *upcoming* trick's number, already
+      // incremented past lastTrick.number by the time we're in this
+      // window) so the needsAck check above actually matches next render.
+      trickReadyAckedFor = s.trick_number;
+      renderReady(lastState);
+    };
+    return;
+  }
+
+  reviewTable.innerHTML = "";
+  hide("confirmBtn");
+  show("readyBlock");
+
+  const amReady = s.ready_seats.includes(s.seat);
+  const notReady = [];
+  for (let i = 0; i < s.num_players; i++) {
+    if (!s.ready_seats.includes(i)) notReady.push(`P${i}`);
+  }
+  el("readyStatus").textContent = notReady.length ? `대기 중: ${notReady.join(", ")}` : "모두 준비 완료";
+
+  const handDiv = el("readyHand");
+  handDiv.innerHTML = "";
+  s.hand.forEach((code) => {
+    const marker = s.can_communicate && !amReady ? cardMarker(code, s.hand) : null;
+    const commOnly = marker !== null;
+    const card = cardEl(code, { clickable: commOnly });
+    card.title = commOnly ? `클릭해서 통신 토큰 놓기 (${MARKER_LABEL_KO[marker]})` : "";
+    card.onclick = () => {
+      if (commOnly) ws.send(JSON.stringify({ type: "communicate", action: code }));
+    };
+    handDiv.appendChild(commOnly ? cardWithToken(card, marker) : card);
+  });
+
+  const readyBtn = el("readyBtn");
+  readyBtn.disabled = amReady;
+  readyBtn.textContent = amReady ? "준비 완료 (대기 중...)" : "준비";
+  readyBtn.onclick = () => ws.send(JSON.stringify({ type: "ready" }));
+}
+
+function renderPlaying(s) {
+  const table = el("table");
+  table.innerHTML = "";
+  const inProgress = Object.keys(s.trick_in_progress).length > 0;
+  if (inProgress) {
+    const heading = document.createElement("b");
+    heading.textContent = `트릭 #${s.trick_number}`;
+    table.appendChild(heading);
+    table.appendChild(document.createElement("br"));
+    for (const seat of playOrderFor(s.current_leader, s.num_players)) {
+      if (seat in s.trick_in_progress) table.appendChild(trickCardSpan(seat, s.trick_in_progress[seat]));
+    }
+  } else {
+    table.innerHTML = `<b>트릭 #${s.trick_number}</b>`;
+  }
+
+  const isMyTurn = s.player_to_act === s.seat;
+  const actingPlayer = s.player_to_act !== null ? s.players[s.player_to_act] : null;
+  const actingIsAi = actingPlayer && actingPlayer.kind === "ai";
+  el("turnIndicator").textContent =
+    s.player_to_act === null
+      ? "게임 종료"
+      : isMyTurn
+      ? "당신 차례"
+      : actingIsAi
+      ? `${actingPlayer.name} 생각 중...`
+      : `P${s.player_to_act} 차례 대기`;
+
+  const handDiv = el("hand");
+  handDiv.innerHTML = "";
+  s.hand.forEach((code) => {
+    const legal = isMyTurn && s.legal_moves.includes(code);
+    const card = cardEl(code, { clickable: legal });
+    card.title = legal ? "클릭해서 플레이" : "";
+    card.onclick = () => {
+      if (legal) ws.send(JSON.stringify({ type: "play", action: code }));
+    };
+    handDiv.appendChild(card);
+  });
+}
+
 function renderDeepSeaCrew(s) {
   if (s.outcome !== null) {
     const banner = el("outcomeBanner");
@@ -350,91 +475,19 @@ function renderDeepSeaCrew(s) {
 
   renderPlayerBoards(s);
 
+  hide("draftView");
+  hide("readyView");
+  hide("playView");
   if (s.phase === "task_draft") {
     show("draftView");
-    hide("playView");
     renderDraft(s);
-    return;
-  }
-  show("playView");
-  hide("draftView");
-
-  const table = el("table");
-  table.innerHTML = "";
-  const inProgress = Object.keys(s.trick_in_progress).length > 0;
-  const lastTrick = s.history.length ? s.history[s.history.length - 1] : null;
-  if (inProgress) {
-    const heading = document.createElement("b");
-    heading.textContent = `트릭 #${s.trick_number}`;
-    table.appendChild(heading);
-    table.appendChild(document.createElement("br"));
-    for (const seat of playOrderFor(s.current_leader, s.num_players)) {
-      if (seat in s.trick_in_progress) table.appendChild(trickCardSpan(seat, s.trick_in_progress[seat]));
-    }
-  } else if (lastTrick && lastTrick.number !== acknowledgedTrick) {
-    // trick_in_progress clears the instant the last card is played, so
-    // without this the whole table would blink empty before anyone can
-    // see what was played -- keep showing the just-finished trick until
-    // "다음" is clicked (see the nextTrickBtn handler, which clears it).
-    const heading = document.createElement("b");
-    heading.textContent = `트릭 #${lastTrick.number} - P${lastTrick.winner} 승리!`;
-    table.appendChild(heading);
-    table.appendChild(document.createElement("br"));
-    for (const seat of playOrderFor(lastTrick.leader, s.num_players)) {
-      if (seat in lastTrick.cards) table.appendChild(trickCardSpan(seat, lastTrick.cards[seat], seat == lastTrick.winner));
-    }
+  } else if (s.phase === "trick_ready") {
+    show("readyView");
+    renderReady(s);
   } else {
-    table.innerHTML = `<b>트릭 #${s.trick_number}</b>`;
+    show("playView");
+    renderPlaying(s);
   }
-
-  el("nextTrickBtn").classList.toggle("hidden", !s.awaiting_next);
-  el("nextTrickBtn").onclick = () => {
-    // Clear the just-finished trick immediately instead of leaving it
-    // displayed until the next broadcast arrives -- "다음" should mean
-    // "done reviewing this", not linger until something else happens to
-    // redraw the table.
-    if (lastTrick) acknowledgedTrick = lastTrick.number;
-    table.innerHTML = `<b>트릭 #${s.trick_number}</b>`;
-    ws.send(JSON.stringify({ type: "next" }));
-  };
-
-  // gated by awaiting_next too: the trick that just finished must be
-  // acknowledged via "다음" before anyone (including the next leader) can act
-  const isMyTurn = s.player_to_act === s.seat && !s.awaiting_next;
-  const actingPlayer = s.player_to_act !== null ? s.players[s.player_to_act] : null;
-  const actingIsAi = actingPlayer && actingPlayer.kind === "ai";
-  el("turnIndicator").textContent = s.awaiting_next
-    ? lastTrick
-      ? "트릭 결과를 확인하고 [다음]을 누르세요"
-      : "필요하면 지금 통신을 사용하세요. 준비되면 [다음]을 누르세요"
-    : s.player_to_act === null
-    ? "게임 종료"
-    : isMyTurn
-    ? "당신 차례"
-    : actingIsAi
-    ? `${actingPlayer.name} 생각 중...`
-    : `P${s.player_to_act} 차례 대기`;
-
-  const handDiv = el("hand");
-  handDiv.innerHTML = "";
-  s.hand.forEach((code) => {
-    const legal = isMyTurn && s.legal_moves.includes(code);
-    const marker = s.can_communicate ? cardMarker(code, s.hand) : null;
-    // A card can only signal if it's truthfully the highest/lowest/only
-    // of its suit in hand (see cardMarker) -- a middling card has no
-    // valid marker and can't be used to communicate, same as the server.
-    const commOnly = !legal && s.can_communicate && marker !== null;
-    const card = cardEl(code, { clickable: legal || commOnly });
-    card.title = legal ? "클릭해서 플레이" : commOnly ? `클릭해서 통신 토큰 놓기 (${MARKER_LABEL_KO[marker]})` : "";
-    card.onclick = () => {
-      if (legal) {
-        ws.send(JSON.stringify({ type: "play", action: code }));
-      } else if (commOnly) {
-        ws.send(JSON.stringify({ type: "communicate", action: code }));
-      }
-    };
-    handDiv.appendChild(commOnly ? cardWithToken(card, marker) : card);
-  });
 }
 
 // ---------- Gomoku rendering ----------
@@ -595,7 +648,7 @@ el("playAgainBtn").onclick = async () => {
   hide("game");
   hide("postGameControls");
   hide("outcomeBanner");
-  acknowledgedTrick = null;
+  trickReadyAckedFor = null;
   lastState = null;
   lastSetup = { game, num_players, difficulty, name, seat, aiModes: [] };
   pendingAutoSetup = { aiModes };

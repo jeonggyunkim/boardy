@@ -26,7 +26,9 @@ def serialize_seat(state: GameState, seat: int, players_meta: list[dict]) -> dic
         "tricks_won": [state.wins_per_player.get(i, 0) for i in range(state.num_players)],
         "legal_moves": legal,
         "player_to_act": state.player_to_act,
-        "current_leader": state.current_leader,
+        "current_leader": state.current_leader,  # this trick's leader (changes every trick)
+        "commander": state.commander,  # fixed for the whole game
+        "ready_seats": sorted(state.ready_seats),
         "trick_number": state.trick_number,
         "hand_size": state.hand_size,
         "trick_in_progress": {p: str(c) for p, c in state.trick_in_progress.items()},

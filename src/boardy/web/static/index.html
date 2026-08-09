@@ -60,11 +60,20 @@
         <div id="draftHand"></div>
       </div>
 
+      <div id="readyView">
+        <h3><span id="readyStatus"></span></h3>
+        <div id="trickReviewTable"></div>
+        <button id="confirmBtn" class="hidden">확인</button>
+        <div id="readyBlock">
+          <p class="hint">통신 가능한 카드는 카드 위/가운데/아래에 토큰이 표시됩니다 (최고/유일/최저).</p>
+          <div id="readyHand"></div>
+          <button id="readyBtn">준비</button>
+        </div>
+      </div>
+
       <div id="playView">
         <div id="table"></div>
-        <button id="nextTrickBtn" class="hidden">다음</button>
         <h3>내 손패 (<span id="turnIndicator"></span>)</h3>
-        <p class="hint">통신 가능한 카드는 카드 위/가운데/아래에 토큰이 표시됩니다 (최고/유일/최저).</p>
         <div id="hand"></div>
       </div>
     </div>

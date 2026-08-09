@@ -139,6 +139,8 @@ async def ws_room(ws: WebSocket, code: str, name: str = "player", seat: int | No
                 await room.communicate(seat, msg.get("action", ""))
             elif mtype == "next" and room.started:
                 await room.acknowledge_next()
+            elif mtype == "ready" and room.started:
+                await room.mark_ready(seat)
     except WebSocketDisconnect:
         room.remove_seat(seat)
         if not room.started:

@@ -191,22 +191,43 @@ class Room:
             return
         await self.broadcast()
 
-    async def _maybe_ai_communicate(self) -> None:
-        """Give AI-controlled seats the same shot at the game's secondary
-        `communicate` channel a human would get, instead of AI seats
-        silently never using it (see GameSpec.communicable_seats)."""
-        if self.spec.communicable_seats is None or self.spec.ai_communicate is None:
-            return
+    async def mark_ready(self, seat: int) -> None:
+        """Human seat confirms it's done reviewing/signaling for this
+        "everyone must ready up" window (see GameSpec.awaiting_ready)."""
         assert self.state is not None
+        if self.spec.mark_ready is None:
+            return
+        try:
+            self.spec.mark_ready(self.state, seat)
+        except ValueError:
+            return
+        await self.broadcast()
+        await self.run_ai_turns()
+
+    async def _advance_ready_phase(self) -> None:
+        """While the game is waiting for every seat to ready up: let each
+        AI-controlled seat that hasn't readied yet optionally communicate
+        first (same idea as the old _maybe_ai_communicate -- give AI seats
+        the same shot at the secondary `communicate` channel a human
+        would get), then mark itself ready. Any seat still un-ready
+        afterward is human -- the caller stops and waits for their
+        explicit "communicate"/"ready" WS messages."""
+        assert self.state is not None
+        if self.spec.mark_ready is None:
+            return
+        already_ready = set(self.spec.ready_seats(self.state)) if self.spec.ready_seats else set()
         changed = False
-        for seat in self.spec.communicable_seats(self.state):
-            seat_info = self.seats[seat]
-            if seat_info is None or seat_info.kind != "ai":
+        for seat, seat_info in enumerate(self.seats):
+            if seat_info is None or seat_info.kind != "ai" or seat in already_ready:
                 continue
-            action = self.spec.ai_communicate(self.state, seat, seat_info.ai_player)
-            if action is not None:
-                self.spec.communicate(self.state, seat, action)
-                changed = True
+            if self.spec.communicable_seats is not None and self.spec.ai_communicate is not None:
+                if seat in self.spec.communicable_seats(self.state):
+                    action = self.spec.ai_communicate(self.state, seat, seat_info.ai_player)
+                    if action is not None and self.spec.communicate is not None:
+                        self.spec.communicate(self.state, seat, action)
+                        changed = True
+            self.spec.mark_ready(self.state, seat)
+            changed = True
         if changed:
             await self.broadcast()
 
@@ -215,7 +236,11 @@ class Room:
         while self.spec.outcome(self.state) is None:
             if self.awaiting_next:
                 return
-            await self._maybe_ai_communicate()
+            if self.spec.awaiting_ready is not None and self.spec.awaiting_ready(self.state):
+                await self._advance_ready_phase()
+                if self.spec.awaiting_ready(self.state):
+                    return  # still waiting on at least one human to ready up
+                continue
             seat = self.spec.player_to_act(self.state)
             if seat is None:
                 break

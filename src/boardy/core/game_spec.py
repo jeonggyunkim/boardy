@@ -89,3 +89,19 @@ class GameSpec:
     # or None to skip. Only ever called for seats `communicable_seats`
     # returned.
     ai_communicate: Callable[[Any, int, Player], str | None] | None = None
+    # Optional: state -> True while the game is in a phase where every
+    # seat must individually confirm readiness before play continues (e.g.
+    # Deep Sea Crew between tricks, so everyone gets a real chance to
+    # communicate first -- see mark_ready/ready_seats below). While true,
+    # `player_to_act` is expected to return None: nobody has an exclusive
+    # turn, so the host drives `mark_ready` per seat instead (automatically
+    # for AI seats, via an explicit UI action for humans). None if the
+    # game has no such mechanic.
+    awaiting_ready: Callable[[Any], bool] | None = None
+    # Optional, alongside `awaiting_ready`: state, seat -> mutates state,
+    # marking that seat ready.
+    mark_ready: Callable[[Any, int], None] | None = None
+    # Optional, alongside `awaiting_ready`: state -> seat indices that have
+    # already marked ready this window, so the host/UI can tell who's
+    # still being waited on.
+    ready_seats: Callable[[Any], list[int]] | None = None

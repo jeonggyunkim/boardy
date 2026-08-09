@@ -11,6 +11,7 @@ def _finish_draft(state: GameState, rng: random.Random) -> None:
         seat = state.player_to_act
         task = rng.choice(state.available_tasks)
         state.draft_task(seat, task.id)
+    state.auto_ready_up()
 
 
 def test_run_mcts_returns_distribution_over_legal_moves():
@@ -38,12 +39,14 @@ def test_sample_determinization_preserves_own_hand_and_hand_sizes():
     _finish_draft(state, random.Random(3))
     # advance one full trick so history-based void inference has something to chew on
     while state.outcome is None:
+        state.auto_ready_up()
         seat = state.player_to_act
         card = state.legal_cards_for(seat)[0]
         rec = state.play_card(seat, card)
         if rec:
             break
     assert state.outcome is None, "mission failed after only one trick; pick a different seed/difficulty"
+    state.auto_ready_up()
     seat = state.player_to_act
     det = sample_determinization(state, seat, random.Random(0))
     assert det.hands[seat] == state.hands[seat]

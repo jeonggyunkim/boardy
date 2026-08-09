@@ -58,6 +58,7 @@ def play_self_play_game(
             card = _random_signal_choice(state, other, rng)
             if card is not None:
                 state.communicate(other, card)
+        state.auto_ready_up()
 
         seat = state.player_to_act
         visit_probs = run_mcts(state, net, num_simulations=num_simulations, add_noise=True)

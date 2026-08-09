@@ -70,21 +70,6 @@ def _ai_communicate(state: GameState, seat: int, player: _StrPlayerAdapter) -> s
     return player.choose_communication(state, seat)
 
 
-def _post_move_delay(state: GameState) -> float:
-    # A fresh trick is about to start whenever we're in "playing" phase
-    # with no cards down yet -- either because the previous trick just
-    # resolved (trick_in_progress goes back to empty the instant it
-    # completes), or because the task draft's last pick just happened.
-    # Pause the web AI-turn loop here so: (a) the just-finished trick is
-    # actually visible before the next card lands on the table, and (b)
-    # every trick -- including the very first -- gets a real window where
-    # players can see the "다음"/communicate options before the leader's
-    # card is auto-played, instead of the leader (if AI) firing instantly.
-    if state.phase == "playing" and not state.trick_in_progress:
-        return 1.4
-    return 0.0
-
-
 SPEC = GameSpec(
     slug="deep_sea_crew",
     name="Deep Sea Crew",
@@ -104,9 +89,11 @@ SPEC = GameSpec(
     make_smart_player=_make_smart_player,
     communicate=_communicate,
     cli_main=_cli_main,
-    post_move_delay=_post_move_delay,
     communicable_seats=lambda state: state.communicable_seats(),
     ai_communicate=_ai_communicate,
+    awaiting_ready=lambda state: state.phase == "trick_ready",
+    mark_ready=lambda state, seat: state.mark_ready(seat),
+    ready_seats=lambda state: sorted(state.ready_seats),
 )
 
 register(SPEC)

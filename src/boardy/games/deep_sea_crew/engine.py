@@ -13,6 +13,15 @@ cards is drawn face-up, and starting from the commander, players take
 turns (wrapping around the table as many times as needed) each claiming
 one card they want. This is a deliberate choice, not a random deal —
 tasks aren't assigned, they're drafted.
+
+Between the draft and every trick (including the first), the game sits
+in an explicit "trick_ready" phase: nobody may play a card yet, but
+anyone still eligible may reveal a Sonar signal (see communicate()).
+Every seat must individually mark itself ready (mark_ready) before the
+trick actually opens for play; a seat can't communicate once it has done
+so. This phase is a real, tracked part of the game state -- not a
+side-effect of pacing the host UI -- so it's the same whether the game is
+played in the CLI or the web GUI.
 """
 
 from __future__ import annotations
@@ -68,11 +77,13 @@ class GameState:
     hands: list[list[Card]]
     available_tasks: list[Task]  # drawn, not yet claimed by anyone
     comms: CommunicationBoard
-    current_leader: int
+    current_leader: int  # this trick's leader -- changes every trick (winner leads next)
+    commander: int  # fixed for the whole game: who led the draft order and trick 1
     hand_size: int
-    phase: str = "task_draft"  # "task_draft" | "playing"
+    phase: str = "task_draft"  # "task_draft" | "trick_ready" | "playing"
     tasks: list[Task] = field(default_factory=list)  # claimed tasks, in draft order
     picks_made: int = 0  # how many tasks have been claimed so far
+    ready_seats: set[int] = field(default_factory=set)  # who has marked ready this "trick_ready" window
     trick_in_progress: dict[int, Card] = field(default_factory=dict)
     trick_number: int = 1
     history: list[TrickRecord] = field(default_factory=list)
@@ -101,6 +112,10 @@ class GameState:
             # draft order starts at the commander and wraps around the
             # table as many times as needed to exhaust the drawn tasks
             return (self.current_leader + self.picks_made) % self.num_players
+        if self.phase == "trick_ready":
+            # not a single-actor turn -- every seat marks ready
+            # independently, in any order (see mark_ready/communicate)
+            return None
         for p in self._play_order:
             if p not in self.trick_in_progress:
                 return p
@@ -119,15 +134,40 @@ class GameState:
         self.tasks.append(match)
         self.picks_made += 1
         if not self.available_tasks:
-            self.phase = "playing"
+            self.phase = "trick_ready"
+            self.ready_seats = set()
         return match
+
+    def mark_ready(self, seat: int) -> None:
+        """Seat confirms it's done reviewing/signaling and the next trick
+        may start once everyone has. Idempotent -- marking ready twice is a
+        no-op, not an error, since a client resending it is harmless."""
+        if self.phase != "trick_ready":
+            raise ValueError("Not waiting for players to ready up right now")
+        if not (0 <= seat < self.num_players):
+            raise ValueError(f"Invalid seat {seat}")
+        self.ready_seats.add(seat)
+        if len(self.ready_seats) == self.num_players:
+            self.phase = "playing"
+
+    def auto_ready_up(self) -> None:
+        """Mark every seat ready without any communication -- for
+        non-interactive contexts (search rollouts, simulated/self-play
+        games, the CLI) that don't model the ready-up window as a real
+        decision point. No-op if not currently in that phase."""
+        while self.phase == "trick_ready":
+            for seat in range(self.num_players):
+                if self.phase != "trick_ready":
+                    break
+                if seat not in self.ready_seats:
+                    self.mark_ready(seat)
 
     def legal_cards_for(self, player: int) -> list[Card]:
         return legal_moves(self.hands[player], self.led_suit)
 
     def play_card(self, player: int, card: Card) -> TrickRecord | None:
         if self.phase != "playing":
-            raise ValueError("Task draft is not finished yet")
+            raise ValueError("Cannot play a card until everyone is ready")
         if self.outcome is not None:
             raise ValueError("Game already finished")
         if player != self.player_to_act:
@@ -176,24 +216,30 @@ class GameState:
         self.trick_in_progress = {}
         self.current_leader = winner
         self.trick_number += 1
+        if self.outcome is None:
+            self.phase = "trick_ready"
+            self.ready_seats = set()
         return record
 
     def communicate(self, player: int, card: Card) -> Signal:
-        if self.trick_in_progress:
-            raise ValueError("Communication is only allowed before a trick starts")
+        if self.phase != "trick_ready":
+            raise ValueError("Communication is only allowed while waiting for players to ready up")
         if player == self.current_leader:
             raise ValueError("The player leading this trick cannot communicate")
+        if player in self.ready_seats:
+            raise ValueError("Already marked ready -- can no longer communicate this window")
         return self.comms.communicate(player, card, self.hands[player])
 
     def communicable_seats(self) -> list[int]:
-        """Seats currently allowed to attempt a Sonar signal: nobody once
-        the trick has started, and never the player leading it."""
-        if self.phase != "playing" or self.trick_in_progress:
+        """Seats currently allowed to attempt a Sonar signal: only during
+        the "trick_ready" window, never the trick's leader, and not once a
+        seat has already marked itself ready."""
+        if self.phase != "trick_ready":
             return []
         return [
             seat
             for seat in range(self.num_players)
-            if seat != self.current_leader and self.comms.can_communicate(seat)
+            if seat != self.current_leader and seat not in self.ready_seats and self.comms.can_communicate(seat)
         ]
 
 
@@ -216,5 +262,6 @@ def new_game(
         available_tasks=available_tasks,
         comms=comms,
         current_leader=commander,
+        commander=commander,
         hand_size=hand_size,
     )

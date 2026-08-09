@@ -86,6 +86,10 @@ def run(num_players: int, difficulty: int, seed: int | None) -> None:
     print_tasks(state)
 
     while state.outcome is None:
+        # The CLI doesn't have interactive comm/ready-up UI (communication
+        # was never supported here even before this phase existed) --
+        # auto-confirm everyone ready so play proceeds the same as before.
+        state.auto_ready_up()
         seat = state.player_to_act
         if seat is None:
             break

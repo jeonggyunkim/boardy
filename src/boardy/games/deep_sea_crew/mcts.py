@@ -61,6 +61,12 @@ def _expand(node: Node, net: PolicyValueNet) -> float:
     for card in node.state.legal_cards_for(node.seat):
         child_state = copy.deepcopy(node.state)
         child_state.play_card(node.seat, card)
+        # A completed trick drops into the "trick_ready" phase (everyone
+        # must ready up before the next one can start -- see engine.py).
+        # Search doesn't model communication/ready-up as a decision, so
+        # just fast-forward through it -- otherwise player_to_act would be
+        # None and this child could never be expanded further.
+        child_state.auto_ready_up()
         node.children[card] = Node(child_state, prior=float(priors[CARD_TO_INDEX[card]]))
     node.expanded = True
     return value

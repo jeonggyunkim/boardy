@@ -6,15 +6,16 @@ from boardy.games.deep_sea_crew.communication import CommunicationBoard
 from boardy.games.deep_sea_crew.players import RandomPlayer
 
 
-def make_bare_state(num_players=3, hand_size=2) -> GameState:
+def make_bare_state(num_players=3, hand_size=2, phase="playing") -> GameState:
     return GameState(
         num_players=num_players,
         hands=[[] for _ in range(num_players)],
         available_tasks=[],
         comms=CommunicationBoard(num_players),
         current_leader=0,
+        commander=0,
         hand_size=hand_size,
-        phase="playing",  # skip the task draft; these tests only exercise trick mechanics
+        phase=phase,  # skip the task draft; these tests only exercise trick/comm mechanics
     )
 
 
@@ -46,7 +47,7 @@ def test_cannot_play_out_of_turn():
 
 
 def test_can_communicate_before_trick_starts():
-    state = make_bare_state()
+    state = make_bare_state(phase="trick_ready")
     state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7)], [Card(Suit.GREEN, 2)]]
     # player 0 is the leader (make_bare_state default) and leaders can't
     # communicate (see test_leader_cannot_communicate below) -- use player 1
@@ -55,7 +56,7 @@ def test_can_communicate_before_trick_starts():
 
 
 def test_leader_cannot_communicate():
-    state = make_bare_state()
+    state = make_bare_state(phase="trick_ready")
     state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7)], [Card(Suit.GREEN, 2)]]
     try:
         state.communicate(0, Card(Suit.GREEN, 4))
@@ -65,7 +66,7 @@ def test_leader_cannot_communicate():
 
 
 def test_cannot_communicate_a_submarine_card():
-    state = make_bare_state()
+    state = make_bare_state(phase="trick_ready")
     state.hands = [[Card(Suit.BLUE, 3)], [Card(Suit.SUBMARINE, 4)], [Card(Suit.GREEN, 2)]]
     try:
         state.communicate(1, Card(Suit.SUBMARINE, 4))
@@ -74,17 +75,32 @@ def test_cannot_communicate_a_submarine_card():
         pass
 
 
-def test_communicable_seats_excludes_leader_and_stops_once_trick_starts():
-    state = make_bare_state()
+def test_cannot_communicate_once_ready():
+    state = make_bare_state(phase="trick_ready")
+    state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7)], [Card(Suit.GREEN, 2)]]
+    state.mark_ready(1)
+    try:
+        state.communicate(1, Card(Suit.BLUE, 7))
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_communicable_seats_excludes_leader_ready_seats_and_stops_once_playing():
+    state = make_bare_state(phase="trick_ready")
     state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7)], [Card(Suit.GREEN, 2)]]
     assert state.communicable_seats() == [1, 2]
-    state.play_card(0, Card(Suit.BLUE, 3))
+    state.mark_ready(2)
+    assert state.communicable_seats() == [1]
+    state.auto_ready_up()
+    assert state.phase == "playing"
     assert state.communicable_seats() == []
 
 
 def test_cannot_communicate_once_trick_in_progress():
-    state = make_bare_state()
+    state = make_bare_state(phase="trick_ready")
     state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7)], [Card(Suit.GREEN, 2)]]
+    state.auto_ready_up()
     state.play_card(0, Card(Suit.BLUE, 3))
     try:
         state.communicate(1, Card(Suit.BLUE, 7))
@@ -94,11 +110,13 @@ def test_cannot_communicate_once_trick_in_progress():
 
 
 def test_can_communicate_again_once_next_trick_starts():
-    state = make_bare_state(num_players=3, hand_size=2)
+    state = make_bare_state(num_players=3, hand_size=2, phase="trick_ready")
     state.hands = [[Card(Suit.BLUE, 3), Card(Suit.GREEN, 4)], [Card(Suit.BLUE, 7), Card(Suit.GREEN, 1)], [Card(Suit.GREEN, 2), Card(Suit.BLUE, 1)]]
+    state.auto_ready_up()
     state.play_card(0, Card(Suit.BLUE, 3))
     state.play_card(1, Card(Suit.BLUE, 7))
-    state.play_card(2, Card(Suit.BLUE, 1))  # must follow blue; completes the trick, trick_in_progress resets
+    state.play_card(2, Card(Suit.BLUE, 1))  # must follow blue; completes the trick -> back to trick_ready
+    assert state.phase == "trick_ready"
     signal = state.communicate(0, Card(Suit.GREEN, 4))
     assert signal.card == Card(Suit.GREEN, 4)
 
@@ -112,6 +130,7 @@ def test_full_random_game_terminates_with_outcome():
             state.draft_task(seat, players[seat].choose_task(state, seat))
         guard = 0
         while state.outcome is None:
+            state.auto_ready_up()
             seat = state.player_to_act
             assert seat is not None
             card = players[seat].choose_card(state, seat)

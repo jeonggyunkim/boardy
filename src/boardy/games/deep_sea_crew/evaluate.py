@@ -26,6 +26,7 @@ def play_game(players: list[Player], num_players: int, difficulty: int, seed: in
             card = players[other].choose_communication(state, other)
             if card is not None:
                 state.communicate(other, card)
+        state.auto_ready_up()
 
         seat = state.player_to_act
         card = players[seat].choose_card(state, seat)
