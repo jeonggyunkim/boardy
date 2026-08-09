@@ -13,6 +13,7 @@
       <h2>새 방 만들기</h2>
       <label>게임 <select id="gameSelect"></select></label>
       <p id="gameDesc" class="hint"></p>
+      <p><a id="rulesLink" href="#" target="_blank" rel="noopener">규칙서 보기 ↗</a></p>
       <label>인원수 <input id="np" type="number" min="2" max="5" value="3"></label>
       <label id="diffLabel">난이도 <input id="diff" type="number" min="1" max="20" value="8"></label>
       <label>이름 <input id="createName" value="player"></label>
@@ -46,6 +47,7 @@
   </section>
 
   <section id="game" class="hidden">
+    <p><a id="inGameRulesLink" href="#" target="_blank" rel="noopener" class="hint">규칙서 보기 ↗</a></p>
     <div id="outcomeBanner" class="hidden"></div>
 
     <div id="dscView">

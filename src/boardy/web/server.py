@@ -15,12 +15,14 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .. import games  # noqa: F401  (import side effect: registers built-in games)
 from ..core import registry as game_registry
 from .rooms import registry
+from .rules import render_rulebook_page
 
 app = FastAPI(title="Boardy Online")
 
@@ -47,6 +49,14 @@ def list_games() -> dict:
             for spec in game_registry.all_specs()
         ]
     }
+
+
+@app.get("/rules/{slug}")
+def rulebook(slug: str) -> HTMLResponse:
+    page = render_rulebook_page(slug)
+    if page is None:
+        return HTMLResponse("<p>이 게임의 규칙서가 아직 없습니다.</p>", status_code=404)
+    return HTMLResponse(page)
 
 
 @app.post("/api/rooms")

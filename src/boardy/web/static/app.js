@@ -82,6 +82,7 @@ function updateGameFields() {
   el("np").max = g.max_players;
   el("np").value = Math.min(Math.max(parseInt(el("np").value, 10) || g.min_players, g.min_players), g.max_players);
   el("diffLabel").classList.toggle("hidden", g.slug !== "deep_sea_crew");
+  el("rulesLink").href = `/rules/${g.slug}`;
 }
 
 function connect(code, name, seat) {
@@ -155,6 +156,7 @@ function handleMessage(msg) {
     hide("seatPicker");
     hide("lobby");
     show("game");
+    el("inGameRulesLink").href = `/rules/${msg.game}`;
     if (msg.game === "gomoku") {
       show("gomokuView");
       hide("dscView");
