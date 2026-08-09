@@ -6,8 +6,10 @@ import argparse
 import io
 import random
 import sys
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
+import numpy as np
 import torch
 
 from .board import Board
@@ -27,23 +29,63 @@ def play_game(black: Player, white: Player) -> int:
     return board.winner  # 1=black won, -1=white won, 0=draw
 
 
+def _arena_game_worker(payload: tuple[dict, dict, int, float, bool, int]) -> tuple[int, int]:
+    """Runs in a worker process (see train.py's _self_play_worker for why
+    plain state_dicts, not nn.Module instances, cross the process
+    boundary, and why num_threads is pinned to 1 here)."""
+    cand_state, inc_state, num_simulations, temperature, cand_is_black, seed = payload
+    torch.set_num_threads(1)
+    random.seed(seed)
+    np.random.seed(seed)
+    candidate = PolicyValueNet()
+    candidate.load_state_dict(cand_state)
+    incumbent = PolicyValueNet()
+    incumbent.load_state_dict(inc_state)
+    cand_player = NetPlayer(candidate, name="candidate", num_simulations=num_simulations, temperature=temperature)
+    inc_player = NetPlayer(incumbent, name="incumbent", num_simulations=num_simulations, temperature=temperature)
+    winner = play_game(cand_player, inc_player) if cand_is_black else play_game(inc_player, cand_player)
+    cand_color = 1 if cand_is_black else -1
+    return winner, cand_color
+
+
 def arena(
     candidate: PolicyValueNet,
     incumbent: PolicyValueNet,
     num_games: int,
     num_simulations: int,
     temperature: float = 0.4,
+    pool: ProcessPoolExecutor | None = None,
+    rng: random.Random | None = None,
 ) -> tuple[int, int, int]:
     """Play candidate vs incumbent, alternating colors. Returns (candidate_wins,
     incumbent_wins, draws). temperature > 0 so games are actually independent
-    (not the same deterministic game replayed with colors swapped)."""
+    (not the same deterministic game replayed with colors swapped). Pass a
+    `pool` to run the (independent) games across worker processes instead
+    of sequentially in this one."""
     cand_wins = inc_wins = draws = 0
-    for g in range(num_games):
-        cand_is_black = g % 2 == 0
-        cand_player = NetPlayer(candidate, name="candidate", num_simulations=num_simulations, temperature=temperature)
-        inc_player = NetPlayer(incumbent, name="incumbent", num_simulations=num_simulations, temperature=temperature)
-        winner = play_game(cand_player, inc_player) if cand_is_black else play_game(inc_player, cand_player)
-        cand_color = 1 if cand_is_black else -1
+    if pool is not None:
+        rng = rng or random.Random()
+        cand_state = {k: v.cpu() for k, v in candidate.state_dict().items()}
+        inc_state = {k: v.cpu() for k, v in incumbent.state_dict().items()}
+        payloads = [
+            (cand_state, inc_state, num_simulations, temperature, g % 2 == 0, rng.randrange(1_000_000_000))
+            for g in range(num_games)
+        ]
+        results = list(pool.map(_arena_game_worker, payloads))
+    else:
+        results = []
+        for g in range(num_games):
+            cand_is_black = g % 2 == 0
+            cand_player = NetPlayer(
+                candidate, name="candidate", num_simulations=num_simulations, temperature=temperature
+            )
+            inc_player = NetPlayer(
+                incumbent, name="incumbent", num_simulations=num_simulations, temperature=temperature
+            )
+            winner = play_game(cand_player, inc_player) if cand_is_black else play_game(inc_player, cand_player)
+            results.append((winner, 1 if cand_is_black else -1))
+
+    for winner, cand_color in results:
         if winner == 0:
             draws += 1
         elif winner == cand_color:

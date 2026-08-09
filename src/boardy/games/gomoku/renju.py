@@ -24,78 +24,111 @@ International Federation rulebook (e.g. a three/four that only "counts"
 through a point that's itself already forbidden) -- flagged as a known
 simplification, same spirit as the rest of this project's
 placeholder/approximate rules.
+
+Performance note: this is the hot path of Gomoku MCTS (called once per
+empty cell per node expansion, see Board.legal_moves), so the line
+representation is a plain list indexed by offset+_PAD (not a dict) and
+the inner loops are unrolled rather than using any()/all() generators --
+both cut pure Python-interpreter overhead substantially, verified via
+cProfile. Semantics are unchanged from the original dict-based version;
+see tests/gomoku/test_renju.py.
 """
 
 from __future__ import annotations
 
 DIRECTIONS = [(1, 0), (0, 1), (1, 1), (1, -1)]
 _RADIUS = 5  # generous margin around the move; five/four/open-three checks all fit well within this
+# _has_open_four_span reads up to one cell beyond _RADIUS on each side
+# (the flank just outside a 4-window anchored at the radius edge), so the
+# backing list needs to cover offset -(_RADIUS+1) .. (_RADIUS+1).
+_PAD = _RADIUS + 1
+_LEN = 2 * _PAD + 1
 
 
-def _line_values(cells: list[int], size: int, r: int, c: int, dr: int, dc: int, mover: int) -> dict[int, int]:
-    """offset -> 1 (mover's stone), 0 (empty), -1 (blocked: opponent stone or off-board).
-    Offset 0 is (r, c) itself."""
-    values: dict[int, int] = {}
+def _line_values(cells: list[int], size: int, r: int, c: int, dr: int, dc: int, mover: int) -> list[int]:
+    """index (offset + _PAD) -> 1 (mover's stone), 0 (empty), -1 (blocked:
+    opponent stone, off-board, or beyond the radius). Offset 0 (index
+    _PAD) is (r, c) itself."""
+    values = [-1] * _LEN
     for off in range(-_RADIUS, _RADIUS + 1):
         rr, cc = r + dr * off, c + dc * off
         if 0 <= rr < size and 0 <= cc < size:
             v = cells[rr * size + cc]
-            values[off] = 1 if v == mover else (0 if v == 0 else -1)
-        else:
-            values[off] = -1
+            values[off + _PAD] = 1 if v == mover else (0 if v == 0 else -1)
     return values
 
 
-def _run_through_zero(values: dict[int, int]) -> int:
+def _run_through_zero(values: list[int]) -> int:
     """Length of the contiguous run of the mover's stones through offset 0
     (offset 0 itself must be the mover's stone)."""
     run = 1
-    i = -1
-    while values.get(i) == 1:
+    i = _PAD - 1
+    while values[i] == 1:
         run += 1
         i -= 1
-    i = 1
-    while values.get(i) == 1:
+    i = _PAD + 1
+    while values[i] == 1:
         run += 1
         i += 1
     return run
 
 
-def _is_four_through_zero(values: dict[int, int]) -> bool:
+def _is_four_through_zero(values: list[int]) -> bool:
     """Some 5-window containing offset 0 has exactly 4 of the mover's
     stones and 1 empty cell (i.e. one move from an exact five)."""
     for i in range(-_RADIUS, _RADIUS - 3):
         if not (i <= 0 < i + 5):
             continue
-        window = [values.get(i + k) for k in range(5)]
-        if -1 in window:
-            continue
-        if window.count(1) == 4 and window.count(0) == 1:
+        base = i + _PAD
+        ones = zeros = 0
+        blocked = False
+        for k in range(5):
+            v = values[base + k]
+            if v == -1:
+                blocked = True
+                break
+            elif v == 1:
+                ones += 1
+            else:
+                zeros += 1
+        if not blocked and ones == 4 and zeros == 1:
             return True
     return False
 
 
-def _has_open_four_span(values: dict[int, int], offsets_required: tuple[int, ...]) -> bool:
+def _has_open_four_span(values: list[int], a: int, b: int) -> bool:
     """Some 4-window of the mover's stones, with both flanks empty, whose
-    span includes every offset in `offsets_required`."""
+    span includes both offsets `a` and `b`."""
+    lo = a if a < b else b
+    hi = a if a > b else b
     for i in range(-_RADIUS, _RADIUS - 2):
-        if any(not (i <= off < i + 4) for off in offsets_required):
+        if i > lo or i + 3 < hi:
             continue
-        if all(values.get(i + k) == 1 for k in range(4)) and values.get(i - 1) == 0 and values.get(i + 4) == 0:
+        base = i + _PAD
+        if (
+            values[base] == 1
+            and values[base + 1] == 1
+            and values[base + 2] == 1
+            and values[base + 3] == 1
+            and values[base - 1] == 0
+            and values[base + 4] == 0
+        ):
             return True
     return False
 
 
-def _is_open_three_through_zero(values: dict[int, int]) -> bool:
+def _is_open_three_through_zero(values: list[int]) -> bool:
     """Some empty cell e exists such that playing there would create an
     open four spanning both offset 0 (this move) and e (the hypothetical
     follow-up) -- i.e. this three is one move from an unstoppable four."""
     for e in range(-_RADIUS + 1, _RADIUS):
-        if values.get(e) != 0:
+        idx = e + _PAD
+        if values[idx] != 0:
             continue
-        hypothetical = dict(values)
-        hypothetical[e] = 1
-        if _has_open_four_span(hypothetical, (0, e)):
+        values[idx] = 1
+        found = _has_open_four_span(values, 0, e)
+        values[idx] = 0
+        if found:
             return True
     return False
 

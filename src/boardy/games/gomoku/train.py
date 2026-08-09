@@ -22,6 +22,7 @@ import random
 import sys
 import time
 from collections import deque
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 
 import numpy as np
@@ -33,6 +34,26 @@ from .network import PolicyValueNet
 from .self_play import Example, play_self_play_game
 
 DEFAULT_CHECKPOINT_DIR = Path(__file__).resolve().parent.parent.parent.parent.parent / "checkpoints_gomoku"
+
+# Physical core count, not logical (hyperthreads don't help much on this
+# CPU-bound, mostly-pure-Python workload) -- overridable via --workers.
+DEFAULT_WORKERS = 4
+
+
+def _self_play_worker(payload: tuple[dict, int, int]) -> tuple[list[Example], int | None]:
+    """Runs in a worker process: rebuild the net from a plain state_dict
+    (nn.Module instances themselves aren't reliably picklable across the
+    spawn boundary Windows uses) and play one game. One thread per process
+    -- letting each of several worker processes also spin up torch's
+    default multi-threaded CPU kernels would oversubscribe the machine's 4
+    physical cores and make things slower, not faster."""
+    state_dict, num_simulations, seed = payload
+    torch.set_num_threads(1)
+    random.seed(seed)
+    np.random.seed(seed)
+    net = PolicyValueNet()
+    net.load_state_dict(state_dict)
+    return play_self_play_game(net, num_simulations=num_simulations)
 
 
 def train_on_batch(net: PolicyValueNet, optimizer: torch.optim.Optimizer, batch: list[Example]) -> tuple[float, float]:
@@ -67,6 +88,7 @@ def run_training(
     arena_games: int,
     arena_simulations: int,
     seed: int | None,
+    workers: int,
 ) -> None:
     checkpoint_dir.mkdir(parents=True, exist_ok=True)
     rng = random.Random(seed)
@@ -87,11 +109,18 @@ def run_training(
     optimizer = torch.optim.Adam(net.parameters(), lr=lr)
     buffer: deque[Example] = deque(maxlen=buffer_size)
 
+    pool = ProcessPoolExecutor(max_workers=workers) if workers > 1 else None
+
     for it in range(1, iterations + 1):
         t0 = time.time()
         black_wins = white_wins = draws = 0
-        for _ in range(games_per_iter):
-            examples, winner = play_self_play_game(best_net, num_simulations=num_simulations)
+        best_state = {k: v.cpu() for k, v in best_net.state_dict().items()}
+        if pool is not None:
+            payloads = [(best_state, num_simulations, rng.randrange(1_000_000_000)) for _ in range(games_per_iter)]
+            results = list(pool.map(_self_play_worker, payloads))
+        else:
+            results = [play_self_play_game(best_net, num_simulations=num_simulations) for _ in range(games_per_iter)]
+        for examples, winner in results:
             buffer.extend(examples)
             if winner == 1:
                 black_wins += 1
@@ -110,7 +139,7 @@ def run_training(
                 value_losses.append(vl)
 
         t1 = time.time()
-        cand_wins, inc_wins, arena_draws = arena(net, best_net, arena_games, arena_simulations)
+        cand_wins, inc_wins, arena_draws = arena(net, best_net, arena_games, arena_simulations, pool=pool, rng=rng)
         arena_time = time.time() - t1
         promoted = cand_wins > inc_wins
         if promoted:
@@ -131,6 +160,9 @@ def run_training(
             f"gen_time={gen_time:.1f}s arena_time={arena_time:.1f}s"
         )
 
+    if pool is not None:
+        pool.shutdown()
+
 
 def main() -> None:
     if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
@@ -147,6 +179,12 @@ def main() -> None:
     parser.add_argument("--arena-games", type=int, default=12)
     parser.add_argument("--arena-simulations", type=int, default=80)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=DEFAULT_WORKERS,
+        help="Worker processes for self-play/arena game generation. 1 disables multiprocessing.",
+    )
     args = parser.parse_args()
 
     run_training(
@@ -161,6 +199,7 @@ def main() -> None:
         arena_games=args.arena_games,
         arena_simulations=args.arena_simulations,
         seed=args.seed,
+        workers=args.workers,
     )
 
 
