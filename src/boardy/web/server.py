@@ -154,7 +154,10 @@ if STATIC_DIR.exists():
 def run() -> None:
     import uvicorn
 
-    uvicorn.run("boardy.web.server:app", host="127.0.0.1", port=8000, reload=False)
+    # 0.0.0.0 so other devices on the same LAN can connect too, not just
+    # this machine. Requires a Windows Firewall inbound rule for the port
+    # (see docs) -- binding alone doesn't open it.
+    uvicorn.run("boardy.web.server:app", host="0.0.0.0", port=8000, reload=False)
 
 
 if __name__ == "__main__":
