@@ -56,6 +56,10 @@ class Room:
     # explicitly acknowledges (see acknowledge_next), rather than either
     # blinking past it or wasting a fixed sleep on a room nobody's watching.
     awaiting_next: bool = False
+    # Room-wide display preference set at creation (currently only Deep Sea
+    # Crew's "카드 도우미" table uses it) -- lives here, not per-client, so
+    # every seat sees the same thing regardless of who created the room.
+    card_helper: bool = False
     # Path to this game's debug log (see _open_log/_log_event), set once
     # the room actually starts. None before that, or if the log couldn't
     # be opened -- logging is a debugging aid, never load-bearing.
@@ -156,6 +160,7 @@ class Room:
             "game": self.spec.slug,
             "num_players": self.num_players,
             "difficulty": self.difficulty,
+            "card_helper": self.card_helper,
             "players": self.players_meta(),
         }
         for s in self.seats:
@@ -187,6 +192,7 @@ class Room:
                             "seat": seat,
                             "game": self.spec.slug,
                             "awaiting_next": self.awaiting_next,
+                            "card_helper": self.card_helper,
                             **view,
                         }
                     )
@@ -322,11 +328,11 @@ class RoomRegistry:
         self._rooms: dict[str, Room] = {}
         self._rng = random.Random()
 
-    def create(self, spec: GameSpec, num_players: int, difficulty: int) -> Room:
+    def create(self, spec: GameSpec, num_players: int, difficulty: int, card_helper: bool = False) -> Room:
         code = make_room_code(self._rng)
         while code in self._rooms:
             code = make_room_code(self._rng)
-        room = Room(code=code, spec=spec, num_players=num_players, difficulty=difficulty)
+        room = Room(code=code, spec=spec, num_players=num_players, difficulty=difficulty, card_helper=card_helper)
         self._rooms[code] = room
         return room
 

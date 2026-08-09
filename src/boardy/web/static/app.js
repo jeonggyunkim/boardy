@@ -11,10 +11,6 @@ let trickReadyAckedFor = null;
 // comm token was already spent (see renderReady) -- avoids resending on
 // every re-render while waiting for the server's ack.
 let autoReadySentFor = null;
-// Personal display preference, set from #cardHelperToggle when creating a
-// Deep Sea Crew room (see createBtn) -- not game state, just a client-side
-// render toggle, so it isn't reset on "다시 플레이".
-let cardHelperEnabled = false;
 // {game, num_players, difficulty, name, seat, aiModes} for the room THIS
 // client created, so "다시 플레이" can spin up an equivalent one -- null
 // if this client joined someone else's room instead (nothing to replay).
@@ -250,7 +246,6 @@ el("homeBtn").onclick = () => {
   mySeat = null;
   trickReadyAckedFor = null;
   autoReadySentFor = null;
-  cardHelperEnabled = false;
   pendingAutoSetup = null;
   hide("game");
   hide("seatPicker");
@@ -324,14 +319,15 @@ const CARD_HELPER_SUITS = ["yellow", "pink", "green", "blue", "submarine"];
 const CARD_HELPER_LABEL_KO = { yellow: "노랑", pink: "분홍", green: "초록", blue: "파랑", submarine: "잠수함" };
 const CARD_HELPER_CODE = { yellow: "Y", pink: "P", green: "G", blue: "B", submarine: "S" };
 
-// Optional per-client display aid: a 5-row (4 colors + submarine) table
-// of every card, with the ones already seen (played, in any completed
-// or in-progress trick) highlighted -- opt-in via #cardHelperToggle when
-// creating a room (see createBtn), not sent to or computed by the
-// server since it's derivable entirely from already-public state.
+// Optional display aid: a 5-row (4 colors + submarine) table of every
+// card, with the ones already seen (played, in any completed or
+// in-progress trick) highlighted. Opt-in via #cardHelperToggle when
+// creating a room (see createBtn) -- a room-wide setting the server
+// broadcasts to every seat (s.card_helper), not a per-client preference,
+// so everyone sees the same thing regardless of who created the room.
 function renderCardHelper(s) {
   const container = el("cardHelperTable");
-  if (!cardHelperEnabled) {
+  if (!s.card_helper) {
     hide("cardHelperTable");
     return;
   }
@@ -742,10 +738,11 @@ el("createBtn").onclick = async () => {
   const game = el("gameSelect").value;
   const num_players = parseInt(el("np").value, 10);
   const difficulty = parseInt(el("diff").value, 10);
+  const card_helper = game === "deep_sea_crew" && el("cardHelperToggle").checked;
   const res = await fetch("/api/rooms", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ game, num_players, difficulty }),
+    body: JSON.stringify({ game, num_players, difficulty, card_helper }),
   });
   const data = await res.json();
   if (data.error) {
@@ -753,11 +750,10 @@ el("createBtn").onclick = async () => {
     return;
   }
   const name = el("createName").value.trim() || "player";
-  cardHelperEnabled = game === "deep_sea_crew" && el("cardHelperToggle").checked;
   // Only a room THIS client created (not one it joined) has a known-full
   // setup to replay -- seat gets filled in once picked, aiModes as they're
   // added (see the seatButtons/addAiBtn handlers).
-  lastSetup = { game, num_players, difficulty, name, seat: null, aiModes: [] };
+  lastSetup = { game, num_players, difficulty, card_helper, name, seat: null, aiModes: [] };
   showSeatPicker(data.code, name);
 };
 
@@ -768,7 +764,6 @@ el("joinBtn").onclick = () => {
     alert("방 코드를 입력하세요");
     return;
   }
-  cardHelperEnabled = false; // no helper toggle in the join flow
   lastSetup = null;
   showSeatPicker(code, name);
 };
@@ -788,11 +783,11 @@ el("playAgainBtn").onclick = async () => {
     el("homeBtn").click();
     return;
   }
-  const { game, num_players, difficulty, name, seat, aiModes } = lastSetup;
+  const { game, num_players, difficulty, card_helper, name, seat, aiModes } = lastSetup;
   const res = await fetch("/api/rooms", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ game, num_players, difficulty }),
+    body: JSON.stringify({ game, num_players, difficulty, card_helper }),
   });
   const data = await res.json();
   if (data.error) {
@@ -810,7 +805,7 @@ el("playAgainBtn").onclick = async () => {
   trickReadyAckedFor = null;
   autoReadySentFor = null;
   lastState = null;
-  lastSetup = { game, num_players, difficulty, name, seat, aiModes: [] };
+  lastSetup = { game, num_players, difficulty, card_helper, name, seat, aiModes: [] };
   pendingAutoSetup = { aiModes };
   connect(data.code, name, seat);
 };

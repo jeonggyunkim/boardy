@@ -33,6 +33,7 @@ class CreateRoomRequest(BaseModel):
     game: str = "deep_sea_crew"
     num_players: int = 3
     difficulty: int = 8
+    card_helper: bool = False
 
 
 @app.get("/api/games")
@@ -68,7 +69,7 @@ def create_room(req: CreateRoomRequest) -> dict:
         return {
             "error": f"{spec.name} supports {spec.min_players}-{spec.max_players} players"
         }
-    room = registry.create(spec, req.num_players, req.difficulty)
+    room = registry.create(spec, req.num_players, req.difficulty, card_helper=req.card_helper)
     return {"code": room.code, "game": spec.slug, "num_players": room.num_players}
 
 
@@ -82,6 +83,7 @@ def get_room(code: str) -> dict:
         "game": room.spec.slug,
         "num_players": room.num_players,
         "started": room.started,
+        "card_helper": room.card_helper,
         "players": room.players_meta(),
     }
 
@@ -110,6 +112,7 @@ async def ws_room(ws: WebSocket, code: str, name: str = "player", seat: int | No
                 "seat": seat,
                 "game": room.spec.slug,
                 "awaiting_next": room.awaiting_next,
+                "card_helper": room.card_helper,
                 **view,
             }
         )
