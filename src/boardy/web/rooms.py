@@ -189,7 +189,17 @@ class Room:
             self.spec.communicate(self.state, seat, action)
         except ValueError:
             return
+        # Using the (one-time) signal is a final decision for this window
+        # -- nothing legitimate left to do before the trick starts, so
+        # auto-ready right away instead of requiring a separate "준비"
+        # click. Matches what AI seats already do (see _advance_ready_phase).
+        if self.spec.mark_ready is not None:
+            try:
+                self.spec.mark_ready(self.state, seat)
+            except ValueError:
+                pass
         await self.broadcast()
+        await self.run_ai_turns()
 
     async def mark_ready(self, seat: int) -> None:
         """Human seat confirms it's done reviewing/signaling for this
