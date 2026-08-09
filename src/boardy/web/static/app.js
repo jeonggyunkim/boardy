@@ -7,6 +7,10 @@ let games = [];
 // nothing to review (trick 1). Communication/준비 UI only shows once this
 // matches the current trick_ready window's trick number (see renderReady).
 let trickReadyAckedFor = null;
+// Trick number for which we've already auto-sent "ready" because the
+// comm token was already spent (see renderReady) -- avoids resending on
+// every re-render while waiting for the server's ack.
+let autoReadySentFor = null;
 // {game, num_players, difficulty, name, seat, aiModes} for the room THIS
 // client created, so "다시 플레이" can spin up an equivalent one -- null
 // if this client joined someone else's room instead (nothing to replay).
@@ -132,6 +136,7 @@ function handleMessage(msg) {
   if (msg.type === "joined") {
     mySeat = msg.seat;
     trickReadyAckedFor = null;
+    autoReadySentFor = null;
     hide("landing");
     hide("seatPicker");
     show("lobby");
@@ -187,6 +192,7 @@ el("homeBtn").onclick = () => {
   lastState = null;
   mySeat = null;
   trickReadyAckedFor = null;
+  autoReadySentFor = null;
   pendingAutoSetup = null;
   hide("game");
   hide("seatPicker");
@@ -240,6 +246,20 @@ function trickCardSpan(seat, code, isWinner = false) {
   wrap.appendChild(label);
   wrap.appendChild(cardEl(code, { clickable: false }));
   return wrap;
+}
+
+// Renders a completed TrickRecord (from s.history) into `container`, in
+// actual play order rather than seat order. Shared by the trick_ready
+// review screen and the post-game "what happened on the final trick" view.
+function renderTrickRecord(container, record, numPlayers) {
+  container.innerHTML = "";
+  const heading = document.createElement("b");
+  heading.textContent = `트릭 #${record.number} - P${record.winner} 승리!`;
+  container.appendChild(heading);
+  container.appendChild(document.createElement("br"));
+  for (const seat of playOrderFor(record.leader, numPlayers)) {
+    if (seat in record.cards) container.appendChild(trickCardSpan(seat, record.cards[seat], seat == record.winner));
+  }
 }
 
 function renderPlayerBoards(s) {
@@ -368,14 +388,7 @@ function renderReady(s) {
 
   if (needsAck) {
     el("readyStatus").textContent = "트릭 결과를 확인하세요";
-    reviewTable.innerHTML = "";
-    const heading = document.createElement("b");
-    heading.textContent = `트릭 #${lastTrick.number} - P${lastTrick.winner} 승리!`;
-    reviewTable.appendChild(heading);
-    reviewTable.appendChild(document.createElement("br"));
-    for (const seat of playOrderFor(lastTrick.leader, s.num_players)) {
-      if (seat in lastTrick.cards) reviewTable.appendChild(trickCardSpan(seat, lastTrick.cards[seat], seat == lastTrick.winner));
-    }
+    renderTrickRecord(reviewTable, lastTrick, s.num_players);
     show("confirmBtn");
     hide("readyBlock");
     confirmBtn.onclick = () => {
@@ -390,7 +403,6 @@ function renderReady(s) {
 
   reviewTable.innerHTML = "";
   hide("confirmBtn");
-  show("readyBlock");
 
   const amReady = s.ready_seats.includes(s.seat);
   const notReady = [];
@@ -398,6 +410,23 @@ function renderReady(s) {
     if (!s.ready_seats.includes(i)) notReady.push(`P${i}`);
   }
   el("readyStatus").textContent = notReady.length ? `대기 중: ${notReady.join(", ")}` : "모두 준비 완료";
+
+  // Nothing left to decide if the one-time token is already spent (used
+  // earlier this game, or leader status no longer excludes anyone) --
+  // auto-ready instead of making the player click "준비" for a choice
+  // that isn't actually available. Guarded by trick number so a
+  // re-render (e.g. another player's broadcast) doesn't resend every time
+  // while waiting for the server's ack (mark_ready is idempotent anyway,
+  // but no need to spam it).
+  if (!amReady && !s.can_communicate) {
+    hide("readyBlock");
+    if (autoReadySentFor !== s.trick_number) {
+      autoReadySentFor = s.trick_number;
+      ws.send(JSON.stringify({ type: "ready" }));
+    }
+    return;
+  }
+  show("readyBlock");
 
   const handDiv = el("readyHand");
   handDiv.innerHTML = "";
@@ -420,9 +449,10 @@ function renderReady(s) {
 
 function renderPlaying(s) {
   const table = el("table");
-  table.innerHTML = "";
   const inProgress = Object.keys(s.trick_in_progress).length > 0;
+  const lastTrick = s.history.length ? s.history[s.history.length - 1] : null;
   if (inProgress) {
+    table.innerHTML = "";
     const heading = document.createElement("b");
     heading.textContent = `트릭 #${s.trick_number}`;
     table.appendChild(heading);
@@ -430,11 +460,21 @@ function renderPlaying(s) {
     for (const seat of playOrderFor(s.current_leader, s.num_players)) {
       if (seat in s.trick_in_progress) table.appendChild(trickCardSpan(seat, s.trick_in_progress[seat]));
     }
+  } else if (s.outcome !== null && lastTrick) {
+    // The game just ended as a trick completed -- that trick never gets
+    // its own "확인" review screen (there's no next trick to ready up
+    // for, see engine.py's _complete_trick only entering "trick_ready"
+    // when outcome is still None), so without this the table would just
+    // go blank right when it matters most: seeing exactly which cards
+    // caused a mission failure. Left showing permanently, not cleared.
+    renderTrickRecord(table, lastTrick, s.num_players);
   } else if (s.trick_number <= s.hand_size) {
     // trick_number is already incremented past hand_size once the last
     // trick resolves (see engine.py's _complete_trick) -- there's no
     // "트릭 #14" when the hand only has 13 tricks, so don't print one.
     table.innerHTML = `<b>트릭 #${s.trick_number}</b>`;
+  } else {
+    table.innerHTML = "";
   }
 
   const isMyTurn = s.player_to_act === s.seat;
@@ -648,6 +688,7 @@ el("playAgainBtn").onclick = async () => {
   hide("postGameControls");
   hide("outcomeBanner");
   trickReadyAckedFor = null;
+  autoReadySentFor = null;
   lastState = null;
   lastSetup = { game, num_players, difficulty, name, seat, aiModes: [] };
   pendingAutoSetup = { aiModes };
