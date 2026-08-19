@@ -24,21 +24,17 @@ def index_to_action(index: int, size: int) -> str:
 
 def encode_board(board: Board) -> np.ndarray:
     n = board.size
-    mine = np.zeros((n, n), dtype=np.float32)
-    theirs = np.zeros((n, n), dtype=np.float32)
-    last = np.zeros((n, n), dtype=np.float32)
-
     me = board.to_move
-    for i, v in enumerate(board.cells):
-        if v == 0:
-            continue
-        r, c = divmod(i, n)
-        (mine if v == me else theirs)[r, c] = 1.0
 
+    cells = np.asarray(board.cells, dtype=np.int8).reshape(n, n)
+    mine = (cells == me).astype(np.float32)
+    theirs = ((cells != 0) & (cells != me)).astype(np.float32)
+
+    last = np.zeros((n, n), dtype=np.float32)
     if board.last_move is not None:
         last[board.last_move] = 1.0
 
-    color_plane = np.ones((n, n), dtype=np.float32) if me == 1 else np.zeros((n, n), dtype=np.float32)
+    color_plane = np.full((n, n), 1.0 if me == 1 else 0.0, dtype=np.float32)
 
     return np.stack([mine, theirs, last, color_plane], axis=0)
 

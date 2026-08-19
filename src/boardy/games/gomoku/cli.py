@@ -7,11 +7,9 @@ import io
 import sys
 from pathlib import Path
 
-import torch
-
 from .board import BLACK, WHITE, Board
 from .engine import new_game
-from .network import PolicyValueNet
+from .network import load_checkpoint
 from .players import NetPlayer, Player, RandomPlayer
 
 COLOR_NAME = {BLACK: "Black(X)", WHITE: "White(O)"}
@@ -46,15 +44,13 @@ class HumanPlayer(Player):
             return f"{r},{c}"
 
 
-def run(human_color: int, checkpoint: Path | None, num_simulations: int) -> None:
+def run(human_color: int, checkpoint: Path | None, num_simulations: int, device: str) -> None:
     board = new_game()
 
-    net = None
     if checkpoint is not None:
-        net = PolicyValueNet()
-        net.load_state_dict(torch.load(checkpoint, map_location="cpu"))
+        net = load_checkpoint(checkpoint, device=device)
         ai: Player = NetPlayer(net, name="ai", num_simulations=num_simulations, temperature=0.0)
-        print(f"AI: trained net + MCTS ({num_simulations} sims/move), checkpoint={checkpoint}")
+        print(f"AI: trained net + MCTS ({num_simulations} sims/move), checkpoint={checkpoint}, device={device}")
     else:
         ai = RandomPlayer(name="ai")
         print("AI: random (pass --checkpoint to play a trained net instead)")
@@ -83,13 +79,15 @@ def run(human_color: int, checkpoint: Path | None, num_simulations: int) -> None
 
 def main() -> None:
     if sys.stdout.encoding and sys.stdout.encoding.lower() != "utf-8":
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+        # line_buffering=True -- see train.py's identical fix for why.
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", line_buffering=True)
     parser = argparse.ArgumentParser(description="Play Gomoku in the terminal.")
     parser.add_argument("--color", choices=["black", "white"], default="black")
     parser.add_argument("--checkpoint", type=Path, default=None)
     parser.add_argument("--simulations", type=int, default=200)
+    parser.add_argument("--device", type=str, default="cpu", help="'cuda' or 'cpu' (default -- single-move latency is fine on CPU for human play).")
     args = parser.parse_args()
-    run(BLACK if args.color == "black" else WHITE, args.checkpoint, args.simulations)
+    run(BLACK if args.color == "black" else WHITE, args.checkpoint, args.simulations, args.device)
 
 
 if __name__ == "__main__":

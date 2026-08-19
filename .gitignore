@@ -10,4 +10,7 @@ node_modules/
 *.ckpt
 .claude/
 checkpoints/
+checkpoints_gomoku/
+checkpoints_gomoku_buggy_20260811/
 logs/
+kifu_run5_to_now.json

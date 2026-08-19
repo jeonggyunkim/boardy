@@ -26,39 +26,60 @@ simplification, same spirit as the rest of this project's
 placeholder/approximate rules.
 
 Performance note: this is the hot path of Gomoku MCTS (called once per
-empty cell per node expansion, see Board.legal_moves), so the line
-representation is a plain list indexed by offset+_PAD (not a dict) and
-the inner loops are unrolled rather than using any()/all() generators --
-both cut pure Python-interpreter overhead substantially, verified via
-cProfile. Semantics are unchanged from the original dict-based version;
-see tests/gomoku/test_renju.py.
+empty cell per node expansion, see Board.legal_moves) -- profiling a real
+self-play run (2026-08-11, see docs/PLAN.md) found it responsible for
+~65% of total wall time even after batching the neural net across many
+games. The inner functions are Numba `@njit`-compiled: they already used
+plain fixed-size arrays and unrolled loops (no dict, no any()/all()) from
+an earlier optimization round, which is exactly the shape JIT compilation
+wants, and `Board.cells` is a numpy array specifically so it crosses into
+JIT'd code with zero copying. `classify_black_move` itself stays a thin
+non-jitted wrapper: the jitted core returns an int code (Numba's nopython
+mode doesn't mix `str` and `None` returns cleanly) which gets translated
+to the original "overline"/"double_four"/"double_three"/None strings here
+-- that public return contract is relied on by web_view.py (forbidden-move
+reasons shown in the web UI) and tests/gomoku/test_renju.py, so it's kept
+byte-for-byte the same even though the internals changed.
 """
 
 from __future__ import annotations
 
+import numba
+import numpy as np
+
 DIRECTIONS = [(1, 0), (0, 1), (1, 1), (1, -1)]
+_DIRECTIONS_ARR = np.array(DIRECTIONS, dtype=np.int64)
 _RADIUS = 5  # generous margin around the move; five/four/open-three checks all fit well within this
 # _has_open_four_span reads up to one cell beyond _RADIUS on each side
 # (the flank just outside a 4-window anchored at the radius edge), so the
-# backing list needs to cover offset -(_RADIUS+1) .. (_RADIUS+1).
+# backing array needs to cover offset -(_RADIUS+1) .. (_RADIUS+1).
 _PAD = _RADIUS + 1
 _LEN = 2 * _PAD + 1
 
+_LEGAL = 0
+_OVERLINE = 1
+_DOUBLE_FOUR = 2
+_DOUBLE_THREE = 3
+_REASON_BY_CODE = {_OVERLINE: "overline", _DOUBLE_FOUR: "double_four", _DOUBLE_THREE: "double_three"}
 
-def _line_values(cells: list[int], size: int, r: int, c: int, dr: int, dc: int, mover: int) -> list[int]:
+
+@numba.njit(cache=True)
+def _line_values(cells: np.ndarray, size: int, r: int, c: int, dr: int, dc: int, mover: int) -> np.ndarray:
     """index (offset + _PAD) -> 1 (mover's stone), 0 (empty), -1 (blocked:
     opponent stone, off-board, or beyond the radius). Offset 0 (index
     _PAD) is (r, c) itself."""
-    values = [-1] * _LEN
+    values = np.full(_LEN, -1, dtype=np.int8)
     for off in range(-_RADIUS, _RADIUS + 1):
-        rr, cc = r + dr * off, c + dc * off
+        rr = r + dr * off
+        cc = c + dc * off
         if 0 <= rr < size and 0 <= cc < size:
             v = cells[rr * size + cc]
             values[off + _PAD] = 1 if v == mover else (0 if v == 0 else -1)
     return values
 
 
-def _run_through_zero(values: list[int]) -> int:
+@numba.njit(cache=True)
+def _run_through_zero(values: np.ndarray) -> int:
     """Length of the contiguous run of the mover's stones through offset 0
     (offset 0 itself must be the mover's stone)."""
     run = 1
@@ -73,14 +94,16 @@ def _run_through_zero(values: list[int]) -> int:
     return run
 
 
-def _is_four_through_zero(values: list[int]) -> bool:
+@numba.njit(cache=True)
+def _is_four_through_zero(values: np.ndarray) -> bool:
     """Some 5-window containing offset 0 has exactly 4 of the mover's
     stones and 1 empty cell (i.e. one move from an exact five)."""
     for i in range(-_RADIUS, _RADIUS - 3):
         if not (i <= 0 < i + 5):
             continue
         base = i + _PAD
-        ones = zeros = 0
+        ones = 0
+        zeros = 0
         blocked = False
         for k in range(5):
             v = values[base + k]
@@ -96,7 +119,8 @@ def _is_four_through_zero(values: list[int]) -> bool:
     return False
 
 
-def _has_open_four_span(values: list[int], a: int, b: int) -> bool:
+@numba.njit(cache=True)
+def _has_open_four_span(values: np.ndarray, a: int, b: int) -> bool:
     """Some 4-window of the mover's stones, with both flanks empty, whose
     span includes both offsets `a` and `b`."""
     lo = a if a < b else b
@@ -117,7 +141,8 @@ def _has_open_four_span(values: list[int], a: int, b: int) -> bool:
     return False
 
 
-def _is_open_three_through_zero(values: list[int]) -> bool:
+@numba.njit(cache=True)
+def _is_open_three_through_zero(values: np.ndarray) -> bool:
     """Some empty cell e exists such that playing there would create an
     open four spanning both offset 0 (this move) and e (the hypothetical
     follow-up) -- i.e. this three is one move from an unstoppable four."""
@@ -133,15 +158,15 @@ def _is_open_three_through_zero(values: list[int]) -> bool:
     return False
 
 
-def classify_black_move(cells: list[int], size: int, r: int, c: int, mover: int) -> str | None:
-    """`cells` must already have `mover`'s stone placed at (r, c). Returns
-    None if the move is fine, else "overline", "double_four", or
-    "double_three"."""
+@numba.njit(cache=True)
+def _classify_black_move_code(cells: np.ndarray, size: int, r: int, c: int, mover: int) -> int:
     any_five = False
     any_overline = False
     four_count = 0
     open_three_count = 0
-    for dr, dc in DIRECTIONS:
+    for k in range(4):
+        dr = _DIRECTIONS_ARR[k, 0]
+        dc = _DIRECTIONS_ARR[k, 1]
         values = _line_values(cells, size, r, c, dr, dc, mover)
         run = _run_through_zero(values)
         if run == 5:
@@ -154,11 +179,18 @@ def classify_black_move(cells: list[int], size: int, r: int, c: int, mover: int)
             open_three_count += 1
 
     if any_five:
-        return None  # an exact five always wins, overriding any forbidden pattern
+        return _LEGAL  # an exact five always wins, overriding any forbidden pattern
     if any_overline:
-        return "overline"
+        return _OVERLINE
     if four_count >= 2:
-        return "double_four"
+        return _DOUBLE_FOUR
     if open_three_count >= 2:
-        return "double_three"
-    return None
+        return _DOUBLE_THREE
+    return _LEGAL
+
+
+def classify_black_move(cells: np.ndarray, size: int, r: int, c: int, mover: int) -> str | None:
+    """`cells` must already have `mover`'s stone placed at (r, c). Returns
+    None if the move is fine, else "overline", "double_four", or
+    "double_three"."""
+    return _REASON_BY_CODE.get(_classify_black_move_code(cells, size, r, c, mover))

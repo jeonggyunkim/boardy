@@ -1,12 +1,17 @@
 """AlphaZero-style CNN policy/value network for Gomoku.
 
-Small on purpose (CPU training): 3 conv blocks shared trunk, then separate
-policy (per-cell logits) and value (tanh, current-player perspective —
-this is a real zero-sum game so value is win-probability-like in [-1, 1],
+Residual tower (default 10 blocks x 128 channels, ~5M params) sized to
+exceed strong human Renju play when paired with a real MCTS search --
+big enough to matter, small enough to batch cheaply on a single GPU.
+Policy head emits per-cell logits; value head emits tanh in [-1, 1] from
+the current player-to-move's perspective (this is a real zero-sum game,
 unlike Deep Sea Crew's cooperative [0, 1] success probability).
 """
 
 from __future__ import annotations
+
+from pathlib import Path
+from typing import Any
 
 import numpy as np
 import torch
@@ -14,6 +19,9 @@ from torch import nn
 
 from .board import DEFAULT_SIZE, Board
 from .encoding import NUM_PLANES, encode_board, legal_action_mask, legal_action_mask_from_moves
+
+DEFAULT_CHANNELS = 128
+DEFAULT_NUM_BLOCKS = 10
 
 
 class ConvBlock(nn.Module):
@@ -26,29 +34,58 @@ class ConvBlock(nn.Module):
         return torch.relu(self.bn(self.conv(x)))
 
 
+class ResidualBlock(nn.Module):
+    def __init__(self, channels: int) -> None:
+        super().__init__()
+        self.conv1 = nn.Conv2d(channels, channels, 3, padding=1)
+        self.bn1 = nn.BatchNorm2d(channels)
+        self.conv2 = nn.Conv2d(channels, channels, 3, padding=1)
+        self.bn2 = nn.BatchNorm2d(channels)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        h = torch.relu(self.bn1(self.conv1(x)))
+        h = self.bn2(self.conv2(h))
+        return torch.relu(x + h)
+
+
 class PolicyValueNet(nn.Module):
-    def __init__(self, board_size: int = DEFAULT_SIZE, channels: int = 64, in_planes: int = NUM_PLANES) -> None:
+    def __init__(
+        self,
+        board_size: int = DEFAULT_SIZE,
+        channels: int = DEFAULT_CHANNELS,
+        num_blocks: int = DEFAULT_NUM_BLOCKS,
+        in_planes: int = NUM_PLANES,
+    ) -> None:
         super().__init__()
         self.board_size = board_size
+        self.channels = channels
+        self.num_blocks = num_blocks
+        self.in_planes = in_planes
         n_cells = board_size * board_size
 
-        self.trunk = nn.Sequential(
-            ConvBlock(in_planes, channels),
-            ConvBlock(channels, channels),
-            ConvBlock(channels, channels),
-        )
+        self.stem = ConvBlock(in_planes, channels)
+        self.tower = nn.Sequential(*[ResidualBlock(channels) for _ in range(num_blocks)])
 
-        self.policy_conv = nn.Conv2d(channels, 2, 1)
-        self.policy_bn = nn.BatchNorm2d(2)
-        self.policy_fc = nn.Linear(2 * n_cells, n_cells)
+        self.policy_conv = nn.Conv2d(channels, 4, 1)
+        self.policy_bn = nn.BatchNorm2d(4)
+        self.policy_fc = nn.Linear(4 * n_cells, n_cells)
 
-        self.value_conv = nn.Conv2d(channels, 1, 1)
-        self.value_bn = nn.BatchNorm2d(1)
-        self.value_fc1 = nn.Linear(n_cells, 64)
+        self.value_conv = nn.Conv2d(channels, 2, 1)
+        self.value_bn = nn.BatchNorm2d(2)
+        self.value_fc1 = nn.Linear(2 * n_cells, 64)
         self.value_fc2 = nn.Linear(64, 1)
 
+    @property
+    def config(self) -> dict[str, int]:
+        return {
+            "board_size": self.board_size,
+            "channels": self.channels,
+            "num_blocks": self.num_blocks,
+            "in_planes": self.in_planes,
+        }
+
     def forward(self, x: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        h = self.trunk(x)
+        h = self.tower(self.stem(x))
 
         p = torch.relu(self.policy_bn(self.policy_conv(h)))
         p = p.flatten(1)
@@ -70,10 +107,11 @@ class PolicyValueNet(nn.Module):
         cells from scratch every call, so recomputing it here too would
         silently double that cost for no reason."""
         self.eval()
+        device = next(self.parameters()).device
         obs = encode_board(board)
-        x = torch.from_numpy(obs).float().unsqueeze(0)
+        x = torch.from_numpy(obs).float().unsqueeze(0).to(device)
         logits, value = self.forward(x)
-        logits = logits.squeeze(0).numpy()
+        logits = logits.squeeze(0).cpu().numpy()
         mask = (
             legal_action_mask(board) if legal_moves is None else legal_action_mask_from_moves(legal_moves, board.size)
         ).astype(bool)
@@ -83,3 +121,24 @@ class PolicyValueNet(nn.Module):
         total = probs.sum()
         probs = probs / total if total > 0 else mask.astype(np.float32) / max(mask.sum(), 1)
         return probs, float(value.item())
+
+
+def save_checkpoint(net: PolicyValueNet, path: Path) -> None:
+    """Save weights alongside the architecture config that produced them,
+    so `load_checkpoint` can reconstruct a matching network instead of
+    relying on whatever `PolicyValueNet()`'s defaults happen to be at
+    load time."""
+    torch.save({"config": net.config, "state_dict": net.state_dict()}, path)
+
+
+def load_checkpoint(path: Path, device: str | torch.device = "cpu") -> PolicyValueNet:
+    payload: dict[str, Any] = torch.load(path, map_location="cpu")
+    if "config" not in payload:
+        raise ValueError(
+            f"{path} is not a config-tagged checkpoint (old format). "
+            "Re-train from scratch -- the network architecture has changed."
+        )
+    net = PolicyValueNet(**payload["config"])
+    net.load_state_dict(payload["state_dict"])
+    net.to(device)
+    return net

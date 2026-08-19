@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from . import renju
 
 BLACK = 1
@@ -23,20 +25,27 @@ DEFAULT_WIN_LENGTH = 5
 _DIRECTIONS = [(1, 0), (0, 1), (1, 1), (1, -1)]
 
 
-@dataclass
+# eq=False: `cells` is a numpy array (see below -- passing it straight into
+# renju.py's numba-jitted hot path is what makes that fast, no per-call
+# list<->array conversion), and dataclass's auto-generated __eq__ compares
+# fields with `==`, which for two arrays returns an array, not a bool --
+# `Board() == Board()` would raise "truth value of an array is ambiguous"
+# instead of comparing. Nothing in this codebase compares Boards with `==`
+# (grepped), so this only forecloses a footgun, not an existing use case.
+@dataclass(eq=False)
 class Board:
     size: int = DEFAULT_SIZE
     win_length: int = DEFAULT_WIN_LENGTH
     renju: bool = True
-    cells: list[int] = field(default_factory=list)  # size*size, row-major; 0=empty
+    cells: np.ndarray = field(default_factory=lambda: np.empty(0, dtype=np.int8))  # size*size, row-major; 0=empty
     to_move: int = BLACK
     last_move: tuple[int, int] | None = None
     move_count: int = 0
     winner: int | None = None  # None=ongoing/unset, BLACK, WHITE, or 0 for draw
 
     def __post_init__(self) -> None:
-        if not self.cells:
-            self.cells = [0] * (self.size * self.size)
+        if self.cells.size == 0:
+            self.cells = np.zeros(self.size * self.size, dtype=np.int8)
 
     def index(self, r: int, c: int) -> int:
         return r * self.size + c
@@ -113,7 +122,7 @@ class Board:
             size=self.size,
             win_length=self.win_length,
             renju=self.renju,
-            cells=list(self.cells),
+            cells=self.cells.copy(),
             to_move=self.to_move,
             last_move=self.last_move,
             move_count=self.move_count,

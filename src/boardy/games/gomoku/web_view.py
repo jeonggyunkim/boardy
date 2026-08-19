@@ -36,7 +36,7 @@ def serialize_seat(board: Board, seat: int, players_meta: list[dict]) -> dict:
         "players": players_meta,
         "size": board.size,
         "win_length": board.win_length,
-        "board": list(board.cells),
+        "board": board.cells.tolist(),  # plain Python ints -- numpy scalars aren't JSON-serializable
         "my_color": "black" if seat == 0 else "white",
         "player_to_act": to_act,
         "legal_moves": legal,
