@@ -34,6 +34,7 @@ import torch
 from .board import Board
 from .encoding import action_to_index, encode_board, legal_action_mask_from_moves
 from .network import PolicyValueNet
+from .tactics import tactical_value
 
 
 class Node:
@@ -248,7 +249,11 @@ class BatchedMCTS:
                 for pos, idx in enumerate(pending_idx):
                     leaf = paths[idx][-1]
                     _expand_with_prediction(leaf, pending_moves[pos], probs_list[pos])
-                    leaf_values[idx] = values[pos]
+                    # Exact 1-ply lookahead overrides the network's (possibly
+                    # miscalibrated) value estimate whenever the outcome is
+                    # actually forced -- see tactics.py.
+                    forced = tactical_value(pending_boards[pos], legal_moves=pending_moves[pos])
+                    leaf_values[idx] = forced if forced is not None else values[pos]
 
             for path, leaf_value in zip(paths, leaf_values):
                 value = leaf_value

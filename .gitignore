@@ -12,5 +12,6 @@ node_modules/
 checkpoints/
 checkpoints_gomoku/
 checkpoints_gomoku_buggy_20260811/
+checkpoints_gomoku_run1-9_archive_20260821/
 logs/
 kifu_run5_to_now.json
