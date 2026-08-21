@@ -103,6 +103,31 @@ def test_broken_three_counts_toward_double_three():
     assert board.is_forbidden_for_black(5, 5) == "double_three"
 
 
+def test_three_blocked_both_ways_is_not_open_even_though_it_looks_like_one():
+    # Horizontal three at cols 3-5 (after playing (5,5)) looks open --
+    # both (5,2) and (5,6) are empty -- but neither side can actually
+    # reach an open four: extending left through (5,2) would connect
+    # into (5,0),(5,1) for six-in-a-row (overline, illegal for Black, so
+    # not a real threat), and extending right through (5,6) runs into
+    # White at (5,7) (a closed, not open, four). Crossed with a genuine
+    # open vertical three, this must NOT be double-three.
+    board = Board(size=9, win_length=5, renju=True)
+    set_stones(board, BLACK, [(5, 0), (5, 1), (5, 3), (5, 4), (3, 5), (4, 5)])
+    set_stones(board, WHITE, [(5, 7)])
+    assert board.is_forbidden_for_black(5, 5) is None
+    assert (5, 5) in board.legal_moves()
+
+
+def test_three_blocked_one_way_still_counts_if_the_other_way_is_open():
+    # Same as above but without the (5,0),(5,1) overline setup -- the
+    # left extension is now genuinely open, so this three still counts
+    # even though its right extension is closed by White.
+    board = Board(size=9, win_length=5, renju=True)
+    set_stones(board, BLACK, [(5, 3), (5, 4), (3, 5), (4, 5)])
+    set_stones(board, WHITE, [(5, 7)])
+    assert board.is_forbidden_for_black(5, 5) == "double_three"
+
+
 def test_white_has_no_forbidden_moves():
     board = Board(size=9, win_length=5, renju=True)
     board.to_move = WHITE
