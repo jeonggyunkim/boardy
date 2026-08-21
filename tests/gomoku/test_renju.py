@@ -118,6 +118,21 @@ def test_three_blocked_both_ways_is_not_open_even_though_it_looks_like_one():
     assert (5, 5) in board.legal_moves()
 
 
+def test_three_overline_flank_two_cells_away_is_not_open():
+    # X . . X X ? . O -- same idea as above, but the overline-causing
+    # stone is *two* cells past the extension point (5,2), not adjacent
+    # to it, so (5,2)'s immediate flank at (5,1) is empty on its own.
+    # Naively that makes cols 2-5 look like a genuine open four (both
+    # (5,1) and (5,6) empty), but playing (5,1) to finish it would still
+    # connect with the existing stone at (5,0) for six-in-a-row -- so
+    # that end is a fake threat, and this must NOT be double-three.
+    board = Board(size=9, win_length=5, renju=True)
+    set_stones(board, BLACK, [(5, 0), (5, 3), (5, 4), (3, 5), (4, 5)])
+    set_stones(board, WHITE, [(5, 7)])
+    assert board.is_forbidden_for_black(5, 5) is None
+    assert (5, 5) in board.legal_moves()
+
+
 def test_three_blocked_one_way_still_counts_if_the_other_way_is_open():
     # Same as above but without the (5,0),(5,1) overline setup -- the
     # left extension is now genuinely open, so this three still counts

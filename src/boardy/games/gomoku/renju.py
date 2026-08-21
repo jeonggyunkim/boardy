@@ -121,8 +121,18 @@ def _is_four_through_zero(values: np.ndarray) -> bool:
 
 @numba.njit(cache=True)
 def _has_open_four_span(values: np.ndarray, a: int, b: int) -> bool:
-    """Some 4-window of the mover's stones, with both flanks empty, whose
-    span includes both offsets `a` and `b`."""
+    """Some 4-window of the mover's stones, with both flanks empty *and*
+    each flank a genuine winning completion, whose span includes both
+    offsets `a` and `b`.
+
+    A flank being merely empty isn't enough: this is only ever evaluated
+    for Black (see this module's docstring -- White has no forbidden
+    moves), who wins with an *exact* five, so if the cell just beyond a
+    flank is already the mover's own stone, filling that flank would run
+    six-plus in a row (an illegal overline) rather than winning -- that
+    end can't actually be used, so it doesn't make the four "open" (the
+    opponent only needs to watch the other end, same as an ordinary
+    closed four)."""
     lo = a if a < b else b
     hi = a if a > b else b
     for i in range(-_RADIUS, _RADIUS - 2):
@@ -136,6 +146,8 @@ def _has_open_four_span(values: np.ndarray, a: int, b: int) -> bool:
             and values[base + 3] == 1
             and values[base - 1] == 0
             and values[base + 4] == 0
+            and values[base - 2] != 1
+            and values[base + 5] != 1
         ):
             return True
     return False
