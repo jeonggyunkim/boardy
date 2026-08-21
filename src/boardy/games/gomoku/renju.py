@@ -204,9 +204,9 @@ def _classify_black_move_code(cells: np.ndarray, size: int, r: int, c: int, move
                 er = r + dr * e
                 ec = c + dc * e
                 eidx = er * size + ec
-                cells_with_e = cells.copy()
-                cells_with_e[eidx] = mover
-                legal = _classify_black_move_code(cells_with_e, size, er, ec, mover, False) == _LEGAL
+                cells[eidx] = mover
+                legal = _classify_black_move_code(cells, size, er, ec, mover, False) == _LEGAL
+                cells[eidx] = 0
                 if not legal:
                     continue
             is_open = True
