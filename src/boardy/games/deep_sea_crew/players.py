@@ -49,7 +49,7 @@ class RandomPlayer(Player):
         return self.rng.choice(state.legal_cards_for(seat))
 
     def choose_task(self, state: GameState, seat: int) -> str:
-        return self.rng.choice(state.available_tasks).id
+        return self.rng.choice(state.draftable_tasks(seat)).id
 
     def choose_communication(self, state: GameState, seat: int) -> Card | None:
         return _random_signal_choice(state, seat, self.rng)
@@ -101,7 +101,7 @@ class NetPlayer(Player):
         # No search-based drafting strategy yet (would need the network/MCTS
         # extended to cover task-choice actions, not just card play) -- picks
         # randomly among the drawn tasks, same as RandomPlayer.
-        return self.rng.choice(state.available_tasks).id
+        return self.rng.choice(state.draftable_tasks(seat)).id
 
     def choose_communication(self, state: GameState, seat: int) -> Card | None:
         # No learned communication strategy yet -- same simplification.

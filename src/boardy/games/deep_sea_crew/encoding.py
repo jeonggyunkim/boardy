@@ -60,14 +60,39 @@ def encode_task(task, seat: int, num_players: int) -> np.ndarray:
     suit_vec = np.zeros(len(COLOR_SUITS) + 1, dtype=np.float32)
     suit_vec[-1] = 1.0
 
+    # NOTE: the encoding below only captures a coarse signal for each task
+    # kind (a representative card/number/suit, when the params have one) --
+    # it does not attempt to losslessly encode every kind's full params
+    # (e.g. a WIN_CARDS list, or a WIN_EXACT_CARD_COUNT condition list).
+    # There's no trained checkpoint for this game yet, so this is a
+    # reasonable starting featurization rather than a fixed contract.
     p = task.params
-    if task.kind == TaskKind.WIN_CARD:
+    _SINGLE_CARD_KINDS = (TaskKind.WIN_CARD, TaskKind.WIN_CARD_EXCLUDE_OTHERS, TaskKind.WIN_CARD_IN_LAST_TRICK)
+    _N_KINDS = (
+        TaskKind.WIN_TRICK_NUMBER,
+        TaskKind.WIN_EXACT_COUNT,
+        TaskKind.WIN_AT_LEAST,
+        TaskKind.WIN_ONLY_TRICK,
+        TaskKind.WIN_N_CONSECUTIVE,
+        TaskKind.WIN_EXACT_COUNT_CONSECUTIVE,
+        TaskKind.PREDICT_EXACT_COUNT,
+    )
+    if task.kind in _SINGLE_CARD_KINDS:
         card_vec = _card_slot(Card.parse(p["card"]))
-    elif task.kind in (TaskKind.WIN_TRICK_NUMBER, TaskKind.WIN_EXACT_COUNT, TaskKind.WIN_AT_LEAST):
+    elif task.kind == TaskKind.WIN_CARDS:
+        card_vec = _card_slot(Card.parse(p["cards"][0]))
+    elif task.kind in _N_KINDS and p.get("n") is not None:
         n_val, n_na = float(p["n"]) / 13.0, 0.0
     elif task.kind == TaskKind.NEVER_WIN_COLOR:
-        suit_vec = np.zeros(len(COLOR_SUITS) + 1, dtype=np.float32)
-        suit_vec[COLOR_SUITS.index(Suit(p["suit"]))] = 1.0
+        suit = Suit(p["suit"])
+        if suit in COLOR_SUITS:
+            suit_vec[COLOR_SUITS.index(suit)] = 1.0
+            suit_vec[-1] = 0.0
+    elif task.kind in (TaskKind.NEVER_WIN_COLORS, TaskKind.NEVER_LEAD_WITH_COLOR) and p.get("suits"):
+        suit = Suit(p["suits"][0])
+        if suit in COLOR_SUITS:
+            suit_vec[COLOR_SUITS.index(suit)] = 1.0
+            suit_vec[-1] = 0.0
 
     status_vec = np.zeros(3, dtype=np.float32)
     if not task.resolved:

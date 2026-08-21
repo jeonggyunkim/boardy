@@ -45,7 +45,7 @@ def play_self_play_game(
     rng = random.Random(seed)
     while state.phase == "task_draft":
         seat = state.player_to_act
-        task = rng.choice(state.available_tasks)
+        task = rng.choice(state.draftable_tasks(seat))
         state.draft_task(seat, task.id)
 
     while state.outcome is None:

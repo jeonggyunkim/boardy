@@ -10,6 +10,7 @@ import sys
 from .cards import Card
 from .engine import GameState, new_game
 from .players import Player, RandomPlayer
+from .tasks import TaskKind
 
 
 def render_hand(hand: list[Card]) -> str:
@@ -47,16 +48,30 @@ class HumanPlayer(Player):
             return card
 
     def choose_task(self, state: GameState, seat: int) -> str:
+        draftable = state.draftable_tasks(seat)
         print("\nAvailable tasks:")
-        for t in state.available_tasks:
+        for t in draftable:
             print(f"  [{t.id}] (difficulty {t.difficulty}) {t.describe()}")
-        valid_ids = {t.id for t in state.available_tasks}
+        valid_ids = {t.id for t in draftable}
         while True:
             raw = input("Draft which task (enter its id, e.g. task-0): ").strip()
             if raw not in valid_ids:
                 print("Not an available task id, try again.")
                 continue
             return raw
+
+    def choose_prediction(self, state: GameState, seat: int) -> int:
+        while True:
+            raw = input(f"Predict how many tricks you'll win (0-{state.hand_size}): ").strip()
+            try:
+                n = int(raw)
+            except ValueError:
+                print("Enter a whole number.")
+                continue
+            if not (0 <= n <= state.hand_size):
+                print(f"Must be between 0 and {state.hand_size}.")
+                continue
+            return n
 
 
 def print_tasks(state: GameState) -> None:
@@ -73,14 +88,19 @@ def run(num_players: int, difficulty: int, seed: int | None) -> None:
         for i in range(1, num_players)
     ]
 
-    print("=== Deep Sea Crew (placeholder ruleset - see docs/PLAN.md) ===")
+    print("=== Deep Sea Crew ===")
 
     print(f"\n--- Task draft (starting with the commander, P{state.current_leader}) ---")
     while state.phase == "task_draft":
         seat = state.player_to_act
         player = players[seat]
         task_id = player.choose_task(state, seat)
-        task = state.draft_task(seat, task_id)
+        prediction = None
+        if isinstance(player, HumanPlayer):
+            drafted = next(t for t in state.available_tasks if t.id == task_id)
+            if drafted.kind == TaskKind.PREDICT_EXACT_COUNT:
+                prediction = player.choose_prediction(state, seat)
+        task = state.draft_task(seat, task_id, prediction=prediction)
         print(f"P{seat} ({player.name}) drafts [{task.id}]: {task.describe()}")
 
     print_tasks(state)

@@ -205,9 +205,20 @@ class Room:
             return
         if self.spec.player_to_act(self.state) != seat:
             return
-        if action not in self.spec.legal_actions(self.state, seat):
+        # An action may carry extra payload after a colon (e.g. Deep Sea
+        # Crew's prediction tasks send "task-3:5" -- the chosen number
+        # tacked onto the drafted task's id, see games/deep_sea_crew/spec.py)
+        # -- legality is checked against the bare id; the game's own `play`
+        # is responsible for validating the payload itself.
+        base_action = action.split(":", 1)[0]
+        if base_action not in self.spec.legal_actions(self.state, seat):
             return
-        self.spec.play(self.state, seat, action)
+        try:
+            self.spec.play(self.state, seat, action)
+        except ValueError:
+            # e.g. an out-of-range prediction payload -- reject the move,
+            # not the connection.
+            return
         await self.broadcast()
         if await self._maybe_pause():
             return

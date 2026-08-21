@@ -26,12 +26,15 @@ played in the CLI or the web GUI.
 
 from __future__ import annotations
 
+import random
 from dataclasses import dataclass, field
 
 from .cards import Card, Suit, deal
 from .communication import CommunicationBoard, Signal
 from .missions import draw_tasks
-from .tasks import Task, missions_completed
+from .tasks import Task, TaskKind, missions_completed
+
+_COMMANDER_ONLY_KINDS = (TaskKind.FEWER_THAN_COMMANDER, TaskKind.MORE_THAN_COMMANDER, TaskKind.EQUAL_TO_COMMANDER)
 
 
 def find_commander(hands: list[list[Card]]) -> int:
@@ -121,7 +124,15 @@ class GameState:
                 return p
         return None
 
-    def draft_task(self, player: int, task_id: str) -> Task:
+    def draftable_tasks(self, player: int) -> list[Task]:
+        """available_tasks this player is allowed to draft -- excludes
+        commander-comparison tasks for the commander themselves, unless
+        that's every task left (then there's no legal alternative, so the
+        restriction is dropped rather than deadlocking the draft)."""
+        allowed = [t for t in self.available_tasks if not (t.kind in _COMMANDER_ONLY_KINDS and player == self.commander)]
+        return allowed or list(self.available_tasks)
+
+    def draft_task(self, player: int, task_id: str, prediction: int | None = None) -> Task:
         if self.phase != "task_draft":
             raise ValueError("Not in the task-draft phase")
         if player != self.player_to_act:
@@ -129,6 +140,18 @@ class GameState:
         match = next((t for t in self.available_tasks if t.id == task_id), None)
         if match is None:
             raise ValueError(f"Task {task_id} is not available to draft")
+        if match not in self.draftable_tasks(player):
+            raise ValueError("The commander cannot draft a task that compares against the commander")
+        if match.kind == TaskKind.PREDICT_EXACT_COUNT:
+            if prediction is None:
+                # non-interactive callers (self-play, search, evaluate) don't
+                # model the prediction as a separate decision -- fall back to
+                # a uniformly random guess rather than forcing every call
+                # site to plumb one through.
+                prediction = random.randint(0, self.hand_size)
+            if not (0 <= prediction <= self.hand_size):
+                raise ValueError(f"Prediction must be between 0 and {self.hand_size}")
+            match.params = dict(match.params, n=prediction)
         self.available_tasks.remove(match)
         match.owner = player
         self.tasks.append(match)
@@ -194,7 +217,15 @@ class GameState:
 
         for task in self.tasks:
             task.check_after_trick(
-                self.trick_number, self.trick_in_progress, winner, self.wins_per_player, is_final, self.hand_size
+                self.trick_number,
+                self.trick_in_progress,
+                winner,
+                self.wins_per_player,
+                is_final,
+                self.hand_size,
+                leader=self.current_leader,
+                num_players=self.num_players,
+                commander=self.commander,
             )
 
         record = TrickRecord(
@@ -244,8 +275,6 @@ def new_game(
     difficulty_budget: int = 8,
     seed: int | None = None,
 ) -> GameState:
-    import random
-
     rng = random.Random(seed)
     hands = deal(num_players, rng)
     hand_size = len(hands[0])

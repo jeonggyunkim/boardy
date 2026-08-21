@@ -4,6 +4,7 @@ from boardy.games.deep_sea_crew.cards import Card, Suit
 from boardy.games.deep_sea_crew.engine import GameState, resolve_trick, new_game
 from boardy.games.deep_sea_crew.communication import CommunicationBoard
 from boardy.games.deep_sea_crew.players import RandomPlayer
+from boardy.games.deep_sea_crew.tasks import Task, TaskKind
 
 
 def make_bare_state(num_players=3, hand_size=2, phase="playing") -> GameState:
@@ -140,3 +141,67 @@ def test_full_random_game_terminates_with_outcome():
         else:
             # mission aborts as soon as any task fails; others may be left moot
             assert any(t.resolved and not t.success for t in state.tasks)
+
+
+def make_draft_state(num_players=3, hand_size=2) -> GameState:
+    return GameState(
+        num_players=num_players,
+        hands=[[] for _ in range(num_players)],
+        available_tasks=[],
+        comms=CommunicationBoard(num_players),
+        current_leader=0,
+        commander=0,
+        hand_size=hand_size,
+        phase="task_draft",
+    )
+
+
+def test_commander_cannot_draft_commander_comparison_task():
+    state = make_draft_state()
+    task = Task(id="t1", kind=TaskKind.MORE_THAN_COMMANDER, params={})
+    other = Task(id="t2", kind=TaskKind.WIN_NO_TRICKS, params={})
+    state.available_tasks = [task, other]  # a legal alternative exists
+    try:
+        state.draft_task(0, "t1")  # seat 0 is the commander
+        assert False, "expected ValueError"
+    except ValueError:
+        pass
+
+
+def test_non_commander_can_draft_commander_comparison_task():
+    state = make_draft_state()
+    task = Task(id="t1", kind=TaskKind.MORE_THAN_COMMANDER, params={})
+    other = Task(id="t2", kind=TaskKind.WIN_NO_TRICKS, params={})
+    state.available_tasks = [task, other]
+    state.current_leader = 1  # so seat 1 (non-commander) drafts first
+    drafted = state.draft_task(1, "t1")
+    assert drafted.owner == 1
+
+
+def test_commander_restriction_drops_if_it_is_the_only_task_left():
+    state = make_draft_state()
+    task = Task(id="t1", kind=TaskKind.EQUAL_TO_COMMANDER, params={})
+    state.available_tasks = [task]
+    # the commander (seat 0) has no legal alternative -- the restriction
+    # is dropped rather than deadlocking the draft
+    drafted = state.draft_task(0, "t1")
+    assert drafted.owner == 0
+
+
+def test_draft_task_captures_explicit_prediction():
+    state = make_draft_state(hand_size=5)
+    task = Task(id="t1", kind=TaskKind.PREDICT_EXACT_COUNT, params={"public": True})
+    state.available_tasks = [task]
+    drafted = state.draft_task(0, "t1", prediction=3)
+    assert drafted.params["n"] == 3
+
+
+def test_draft_task_rejects_out_of_range_prediction():
+    state = make_draft_state(hand_size=5)
+    task = Task(id="t1", kind=TaskKind.PREDICT_EXACT_COUNT, params={"public": True})
+    state.available_tasks = [task]
+    try:
+        state.draft_task(0, "t1", prediction=6)
+        assert False, "expected ValueError"
+    except ValueError:
+        pass

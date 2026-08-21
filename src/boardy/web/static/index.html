@@ -52,7 +52,28 @@
     <div id="outcomeBanner" class="hidden"></div>
 
     <div id="dscView">
-      <div id="playerBoards"></div>
+      <!-- The round table: one seat pod per player (name, captain/leader/
+           token badges, mission cards, won-trick pile), arranged around a
+           circle with "me" at the bottom -- see renderTable in app.js.
+           Shown in every phase, not just while playing a trick. -->
+      <div id="tableOuter">
+        <div id="tableCircle"></div>
+      </div>
+
+      <!-- Persistent Sonar-token widget: shown any time this seat still has
+           its one-time communication unspent (see token_available), across
+           every phase but the draft. Pressing it just "arms" the intent --
+           the actual card+marker picker only opens once the next
+           trick_ready window is reached (see renderReady in app.js). Most
+           tricks nobody presses this, so nothing blocks play by default. -->
+      <div id="commTokenWidget" class="hidden">
+        <button id="commTokenBtn" class="token-btn">📡 통신 토큰 사용하기</button>
+        <p class="hint">아직 안 쓴 통신 토큰이 있어요. 누르면 다음 트릭이 시작되기 전에 카드 선택 창이 뜹니다. 다시 누르면 취소돼요.</p>
+      </div>
+
+      <!-- my own missions -- shown full-size right above my hand, unlike
+           everyone else's (compact, inside their table pod) -->
+      <div id="myMissions"></div>
 
       <div id="draftView">
         <h3><span id="draftStatus"></span></h3>
@@ -63,12 +84,15 @@
 
       <div id="readyView">
         <h3><span id="readyStatus"></span></h3>
-        <div id="trickReviewTable"></div>
-        <button id="confirmBtn" class="hidden">확인</button>
+        <!-- The just-finished trick's cards and its "확인" button live on
+             the round table itself now (see renderTable's `reviewing`
+             branch in app.js) -- nothing to render here for that step. -->
+        <!-- Only shown when this seat armed the token widget above --
+             otherwise the game just proceeds on its own (see renderReady). -->
         <div id="readyBlock">
           <p class="hint">통신 가능한 카드는 카드 위/가운데/아래에 토큰이 표시됩니다 (최고/유일/최저).</p>
           <div id="readyHand"></div>
-          <button id="readyBtn">힌트 사용 안 함</button>
+          <button id="declineCommBtn">그냥 안 쓸래요</button>
         </div>
       </div>
 

@@ -51,13 +51,18 @@ def _legal_actions(state: GameState, seat: int) -> list[str]:
     if state.player_to_act != seat:
         return []
     if state.phase == "task_draft":
-        return [t.id for t in state.available_tasks]
+        return [t.id for t in state.draftable_tasks(seat)]
     return [str(c) for c in state.legal_cards_for(seat)]
 
 
 def _play(state: GameState, seat: int, action: str) -> None:
     if state.phase == "task_draft":
-        state.draft_task(seat, action)
+        # A prediction task's action carries its chosen number as
+        # "task-id:n" (see static/app.js's inline prediction input) --
+        # every other task just drafts by bare id, same as before.
+        task_id, _, raw_n = action.partition(":")
+        prediction = int(raw_n) if raw_n else None
+        state.draft_task(seat, task_id, prediction=prediction)
     else:
         state.play_card(seat, Card.parse(action))
 

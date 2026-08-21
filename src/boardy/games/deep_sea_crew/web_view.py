@@ -9,12 +9,13 @@ game-specific content behind a generic key schema, not shared code.
 from __future__ import annotations
 
 from .engine import GameState
+from .tasks import TaskKind
 
 
 def serialize_seat(state: GameState, seat: int, players_meta: list[dict]) -> dict:
     is_my_turn = state.player_to_act == seat
     if state.phase == "task_draft":
-        legal = [t.id for t in state.available_tasks] if is_my_turn else []
+        legal = [t.id for t in state.draftable_tasks(seat)] if is_my_turn else []
     else:
         legal = [str(c) for c in state.legal_cards_for(seat)] if is_my_turn else []
     return {
@@ -29,21 +30,44 @@ def serialize_seat(state: GameState, seat: int, players_meta: list[dict]) -> dic
         "current_leader": state.current_leader,  # this trick's leader (changes every trick)
         "commander": state.commander,  # fixed for the whole game
         "ready_seats": sorted(state.ready_seats),
+        # Whether this seat's one-time Sonar token is still unspent -- unlike
+        # `can_communicate` below, this is true/false in *every* phase, not
+        # just during the brief "trick_ready" window, so the frontend can
+        # show a persistent "use your token" button the player can arm
+        # ahead of time (see static/app.js's commArmed).
+        "token_available": state.comms.can_communicate(seat),
+        # Same fact for *every* seat, not just this viewer -- whether a
+        # player has used their one-time token is derivable public
+        # knowledge (the reveal itself is public), and the table view
+        # shows a small token badge on every seat, not just this one.
+        "tokens_available": [state.comms.can_communicate(i) for i in range(state.num_players)],
         "trick_number": state.trick_number,
         "hand_size": state.hand_size,
         "trick_in_progress": {p: str(c) for p, c in state.trick_in_progress.items()},
         "available_tasks": [
-            {"id": t.id, "describe": t.describe(), "difficulty": t.difficulty}
+            {
+                "id": t.id,
+                "describe": t.describe(),
+                "difficulty": t.difficulty,
+                # 예측 (prediction) tasks need a number picked at draft time,
+                # not just a click -- the frontend shows an inline input for
+                # these instead of drafting immediately. `public` says
+                # whether the chosen number gets revealed to the whole crew
+                # or stays known only to whoever drafts it.
+                "is_prediction": t.kind == TaskKind.PREDICT_EXACT_COUNT,
+                "public": t.params.get("public") if t.kind == TaskKind.PREDICT_EXACT_COUNT else None,
+            }
             for t in state.available_tasks
         ],
         "tasks": [
             {
                 "id": t.id,
                 "owner": t.owner,
-                "describe": t.describe_assigned(),  # "P0: ..." -- for the flat mission-wide list
-                "describe_plain": t.describe(),  # no owner prefix -- for display already grouped by player
+                "describe": t.describe_assigned_for(seat),  # "P0: ..." -- for the flat mission-wide list
+                "describe_plain": t.describe_for(seat),  # no owner prefix -- for display already grouped by player
                 "resolved": t.resolved,
                 "success": t.success,
+                "hidden": t.is_hidden_from(seat),
             }
             for t in state.tasks
         ],

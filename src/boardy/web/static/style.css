@@ -1,4 +1,4 @@
-body { font-family: system-ui, sans-serif; max-width: 760px; margin: 2rem auto; padding: 0 1rem; background: #0b1e2d; color: #e8f1f5; }
+body { font-family: system-ui, sans-serif; max-width: 1040px; margin: 2rem auto; padding: 0 1rem; background: #0b1e2d; color: #e8f1f5; }
 h1 { font-size: 1.4rem; }
 .subtitle { font-size: 0.75rem; color: #8ab; font-weight: normal; }
 .hidden { display: none !important; }
@@ -7,6 +7,41 @@ label { display: block; margin: 0.4rem 0; }
 input { margin-left: 0.5rem; }
 button { margin: 0.4rem 0.4rem 0.4rem 0; padding: 0.4rem 0.8rem; cursor: pointer; }
 button:disabled { opacity: 0.4; cursor: not-allowed; }
+/* A required "please look at this and click" CTA (e.g. #confirmBtn) --
+   made to stand out so it doesn't get missed among the rest of the UI. */
+button.primary {
+  background: #2f7d4f; border: 1px solid #4fb87c; color: #fff;
+  font-weight: bold; padding: 0.6rem 1.1rem; font-size: 1rem;
+}
+button.primary:hover:not(:disabled) { background: #368a58; }
+button.primary:disabled { background: #244; border-color: #355; }
+
+/* Persistent Sonar-token widget (#commTokenWidget, see app.js's
+   renderCommWidget/commArmed) -- the *only* place a player can opt into
+   communicating, so it's a big bordered pill sitting right under the
+   table (near "my" seat), not just another plain button in the page --
+   easy to spot as "press here", unlike everyone else's passive token
+   badge on the table itself (see .badge-token). */
+#commTokenWidget { margin: 0.6rem auto 1rem; text-align: center; }
+.token-btn {
+  display: inline-flex; align-items: center; gap: 0.5rem;
+  padding: 0.6rem 1.3rem; font-size: 1rem; font-weight: bold; border-radius: 999px;
+  background: #173948; border: 2px solid #7fd4e8; color: #d8f3fa;
+  box-shadow: 0 0 0 4px rgba(127, 212, 232, 0.10), 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+.token-btn:hover { background: #1e4a5c; }
+.token-btn.armed {
+  background: #6b4f0e; border-color: #ffd54a; color: #ffe9a8;
+  animation: token-pulse 1.4s ease-in-out infinite;
+}
+@keyframes token-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 213, 74, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(255, 213, 74, 0); }
+}
+#commTokenWidget .hint { margin: 0.4rem 0 0; }
+
+#declineCommBtn { background: #132a3a; border: 1px solid #355; color: #cde; }
+#declineCommBtn:hover { background: #1c3a4f; }
 #seatList { list-style: none; padding: 0; }
 #seatList li { padding: 0.2rem 0; }
 #seatButtons { display: flex; flex-direction: column; gap: 0.4rem; margin: 0.6rem 0; }
@@ -81,25 +116,147 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
   content: ""; position: absolute; inset: 35%; border-radius: 50%; background: #e33;
 }
 
-/* Deep Sea Crew: one board per player, with a face-down pile representing
-   tricks they've won (instead of a plain "N tricks" number). */
-#playerBoards { display: flex; gap: 1.4rem; flex-wrap: wrap; margin: 0.6rem 0 1.2rem; }
-.player-board { text-align: center; min-width: 3rem; }
-.player-board.to-act .player-name { color: #ffd54a; }
-.player-name { font-size: 0.78rem; margin-bottom: 0.4rem; white-space: nowrap; }
-.pile { position: relative; width: 2.4rem; height: 3.4rem; margin: 0 auto; }
-.pile-card {
-  position: absolute; inset: 0; border-radius: 6px; background: #2a4a63;
-  border: 1px solid #4b6a83; box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+/* Deep Sea Crew: the round table (see renderTable in app.js). One seat
+   pod per player, arranged around a circle with "me" at the bottom
+   (seatOffset() spaces every seat evenly regardless of player count) --
+   the whole redesign this replaces is about making "who played what"
+   and "whose mission is whose" legible at a glance, like sitting at a
+   real table, instead of a flat list of stats. */
+#tableOuter { display: flex; justify-content: center; margin: 0.8rem 0 0.6rem; }
+#tableCircle {
+  position: relative; width: 600px; height: 600px; max-width: 100%; border-radius: 50%;
+  background: radial-gradient(circle at 50% 45%, #123244 0%, #0e2534 55%, #0b1e2d 100%);
+  box-shadow: 0 0 0 1px rgba(136, 170, 187, 0.12), inset 0 0 60px rgba(0, 0, 0, 0.5);
+  /* NOT overflow:hidden -- seat pods are positioned around and partly
+     outside the circle's own edge by design (see seatOffset/TABLE_POD_RADIUS
+     in app.js); clipping to the circle would cut them off. */
 }
-.pile-empty {
-  position: absolute; inset: 0; border-radius: 6px; border: 1px dashed #355;
+#tableCircle::before, #tableCircle::after {
+  content: ""; position: absolute; border-radius: 50%; border: 1px solid rgba(136, 170, 187, 0.12);
+  /* Purely decorative rings -- without this they sit on top of (and
+     silently swallow clicks meant for) the pods/cards/confirm button
+     they're drawn behind, since a generated pseudo-element still
+     participates in hit-testing by default even with no visible fill. */
+  pointer-events: none;
 }
-.pile-count { margin-top: 0.3rem; font-size: 0.75rem; color: #8ab; }
-.player-tasks { margin-top: 0.3rem; font-size: 0.7rem; color: #cde; max-width: 8rem; }
-.player-tasks .mini-task { padding: 0.1rem 0; }
-.player-tasks .mini-task.ok { color: #6f6; }
-.player-tasks .mini-task.failed { color: #f66; text-decoration: line-through; }
+#tableCircle::before { inset: 14%; }
+#tableCircle::after { inset: 32%; }
+.table-center {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: 64px; height: 64px; border-radius: 50%; background: #0f2a38;
+  border: 1px solid rgba(136, 170, 187, 0.25); display: flex; align-items: center;
+  justify-content: center; font-size: 0.7rem; color: #8ab; text-align: center; line-height: 1.3;
+}
+
+/* The "확인" pause at the table's center -- both when reviewing the trick
+   that just finished (cards stay put at each seat's slot, winner already
+   picked out in gold there -- see .winner-card -- so no need to repeat
+   who won in words here) and on the very first trick, before anyone's
+   played a card yet, which otherwise had no natural pause for a player to
+   notice they could use their Sonar token first. Replaces .table-center
+   at the same spot in both cases. */
+.table-center-review {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  background: #132a3a; border: 1px solid #224444; border-radius: 12px;
+  padding: 0.5rem; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+.table-center-review button { margin: 0; }
+
+.seat-pod {
+  position: absolute; transform: translate(-50%, -50%); width: 176px;
+  background: #132a3a; border: 1px solid #224444; border-radius: 10px; padding: 0.5rem 0.6rem;
+}
+.seat-pod.to-act { border-color: #ffd54a; box-shadow: 0 0 0 2px rgba(255, 213, 74, 0.25); }
+/* A revealed Sonar signal docks below the pod as a floating overlay,
+   NOT a normal-flow child -- pods are center-anchored (translate -50%,
+   -50%), so if the signal card added to the pod's own height, the pod
+   would grow in both directions from that same center point and could
+   swallow whatever's nearby (another pod, a mission card, ...) the
+   instant someone reveals one. Taking it out of flow keeps every pod's
+   size -- and therefore its anchored position -- constant regardless of
+   whether a signal is showing. */
+.seat-pod .signal-slot {
+  position: absolute; left: 50%; top: 100%; transform: translateX(-50%);
+  margin-top: 0.4rem;
+}
+.seat-pod.me { background: #16303f; }
+.pod-head { display: flex; align-items: center; gap: 0.4rem; }
+.pod-head .avatar { width: 22px; height: 22px; border-radius: 50%; background: #1c3a4f; border: 1px solid #355; flex: none; }
+.pod-head .name { font-size: 0.78rem; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.seat-pod.to-act .pod-head .name { color: #ffd54a; }
+.pod-badges { display: flex; gap: 0.3rem; margin-top: 0.15rem; flex-wrap: wrap; }
+
+/* three DIFFERENT things, three different looks so they never get
+   mistaken for one another -- gold "to-act" glow (above) = this seat's
+   turn right now; cyan anchor = the fixed captain (submarine-4 holder)
+   for this whole game; "리드" pill = whoever opened *this* trick
+   (rotates trick to trick, may or may not be the captain). */
+.badge-captain { display: inline-flex; align-items: center; gap: 2px; color: #7fd4e8; font-size: 0.68rem; font-weight: 700; }
+.badge-leader {
+  display: inline-flex; align-items: center; gap: 2px; font-size: 0.65rem; font-weight: 700;
+  color: #cfe3ea; background: rgba(136, 170, 187, 0.14); border: 1px solid rgba(136, 170, 187, 0.35);
+  border-radius: 999px; padding: 0 0.4rem 0 0.25rem;
+}
+.badge-token { display: inline-flex; align-items: center; margin-left: auto; }
+.badge-token svg { color: #7fd4e8; }
+.badge-token.used svg { color: #3a5568; }
+
+/* won-trick piles: a literal little stack of face-down cards, count
+   badged on the corner -- instead of a bare "N tricks" stat. */
+.trick-pile { position: relative; width: 34px; height: 46px; margin-top: 0.4rem; }
+.trick-pile .leaf { position: absolute; inset: 0; border-radius: 5px; box-shadow: 0 3px 8px rgba(0, 0, 0, 0.5); }
+.trick-pile .leaf:nth-child(1) { background: #1d3a4f; border: 1px solid #33566d; transform: rotate(-7deg); }
+.trick-pile .leaf:nth-child(2) { background: #2a4a63; border: 1px solid #4b6a83; transform: rotate(5deg) translate(1px, -1px); }
+.trick-pile .leaf:nth-child(3) { background: #345c78; border: 1px solid #5c839c; }
+.trick-pile .count {
+  position: absolute; right: -6px; bottom: -6px; width: 18px; height: 18px; border-radius: 50%;
+  background: #0a1c26; border: 1px solid #4b6a83; color: #e8f1f5;
+  font-size: 0.62rem; font-weight: 800; display: flex; align-items: center; justify-content: center;
+}
+.trick-pile.empty { border-radius: 5px; border: 2px dashed rgba(136, 170, 187, 0.3); }
+.trick-pile.empty .count { background: #0a1c26; color: #6f92a3; }
+
+/* mission cards: everyone's are readable -- seeing teammates' missions is
+   core to this cooperative game. Only the one genuinely-private
+   prediction mission stays masked (server already redacts the text --
+   see Task.describe_for -- this just styles it as visibly "hidden"). */
+.mission-row { display: flex; flex-direction: column; gap: 0.25rem; margin-top: 0.45rem; }
+.mission-card {
+  display: flex; gap: 0.4rem; align-items: flex-start; text-align: left;
+  background: #0f2432; border: 1px solid #2a4a5c; border-radius: 7px; padding: 0.35rem 0.5rem;
+}
+.mission-card.done { border-color: #4caf7d; box-shadow: 0 0 0 1px rgba(76, 175, 125, 0.16); }
+.mission-card.failed { border-color: #d9534f; box-shadow: 0 0 0 1px rgba(217, 83, 79, 0.18); }
+.mission-card.hidden-card { border-style: dashed; opacity: 0.85; }
+.mission-diff {
+  flex: none; width: 17px; height: 17px; border-radius: 50%; margin-top: 1px;
+  background: #0a1c26; border: 1px solid #355; color: #8ab;
+  font-size: 0.6rem; font-weight: 800; display: flex; align-items: center; justify-content: center;
+}
+.mission-text { font-size: 0.66rem; line-height: 1.35; color: #dfeaf0; }
+.mission-status { font-size: 0.6rem; margin-top: 0.15rem; color: #6f92a3; }
+.mission-status.done { color: #6fd99f; }
+.mission-status.failed { color: #f88; }
+
+/* my own missions get a bigger, dedicated row right above my hand --
+   still the easiest ones for ME to act on, even though everyone's are
+   now visible on the table too. */
+#myMissions { display: flex; justify-content: center; gap: 0.7rem; flex-wrap: wrap; margin: 0.4rem 0 0.8rem; }
+#myMissions .mission-card { width: 15rem; padding: 0.55rem 0.75rem; border-radius: 10px; }
+#myMissions .mission-diff { width: 22px; height: 22px; font-size: 0.68rem; }
+#myMissions .mission-text { font-size: 0.75rem; }
+#myMissions .mission-status { font-size: 0.68rem; }
+
+/* a seat's card slot for the trick currently in progress -- filled with a
+   real .card once played, or a dashed placeholder while everyone waits */
+.table-slot-empty {
+  width: 2.4rem; height: 3.4rem; border-radius: 6px; border: 2px dashed rgba(136, 170, 187, 0.3);
+  display: flex; align-items: center; justify-content: center; font-size: 0.65rem; color: #8ab;
+}
+.table-slot-empty.waiting-for-me { border-color: rgba(255, 213, 74, 0.55); color: #ffd54a; }
+
+/* the trick's winning card, while reviewing (see renderTable) */
+.card.winner-card { border-color: #ffd54a; box-shadow: 0 0 0 3px rgba(255, 213, 74, 0.3); }
 
 /* "trick_ready" window: review the finished trick, then communicate/ready */
 #readyStatus { font-size: 0.95rem; }
@@ -114,17 +271,39 @@ button:disabled { opacity: 0.4; cursor: not-allowed; }
 .draft-task.pickable:hover { background: #1c3a4f; }
 .draft-task .diff { color: #8ab; font-size: 0.75rem; margin-right: 0.4rem; }
 
+/* 예측 (prediction) tasks: not a single clickable button -- the number
+   input/confirm button inside are the interactive bits, not the card. */
+.predict-task { cursor: default; }
+.predict-task em { color: #8ab; font-style: normal; font-size: 0.75rem; }
+.predict-row { display: flex; align-items: center; gap: 0.5rem; margin-top: 0.4rem; }
+.predict-input {
+  width: 4rem; padding: 0.3rem; border-radius: 4px; border: 1px solid #355;
+  background: #0d1f2b; color: inherit;
+}
+.predict-row button {
+  padding: 0.3rem 0.6rem; border-radius: 4px; border: 1px solid #8ab;
+  background: #132a3a; color: inherit; cursor: pointer;
+}
+.predict-row button:hover { background: #1c3a4f; }
+
 .trick-card-wrap { display: inline-block; }
 .trick-card-wrap.winner .card { border-color: #ffd54a; }
 
 #postGameControls { margin-top: 1rem; }
 
-/* Card helper: which cards have already appeared, one row per suit */
-#cardHelperTable { margin: 0.6rem 0; }
+/* Card helper: which cards have already appeared, one row per suit.
+   Floats in the bottom-right corner of the viewport (opt-in via the
+   room's 카드 도우미 setting) so it's always reachable without scrolling
+   back up, and never competes with the table for the page's main column. */
+#cardHelperTable {
+  position: fixed; right: 1rem; bottom: 1rem; z-index: 20;
+  background: rgba(15, 36, 50, 0.94); border: 1px solid #224444; border-radius: 10px;
+  padding: 0.6rem 0.7rem; backdrop-filter: blur(3px); box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+}
 .card-helper { border-collapse: collapse; }
 .card-helper th { text-align: left; font-size: 0.75rem; color: #8ab; padding-right: 0.5rem; }
 .card-helper-cell {
-  width: 1.6rem; height: 1.6rem; text-align: center; font-size: 0.8rem;
+  width: 1.3rem; height: 1.3rem; text-align: center; font-size: 0.68rem;
   font-weight: bold; border-radius: 4px; color: #fff;
 }
 .card-helper-cell.unseen { opacity: 0.25; }
