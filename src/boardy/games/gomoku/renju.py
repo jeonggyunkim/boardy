@@ -11,19 +11,17 @@ Rather than a hand-written table of line patterns (easy to get subtly
 wrong), this works from the definitions directly:
   - a "four" is a line where some empty cell, if filled, completes an
     exact five;
-  - an "open four" is a four with two such cells (unstoppable: the
-    opponent can only block one);
-  - a "three" is "open" (활삼) if some empty cell, if filled, would create
-    an open four.
+  - an "open four" is a four with two such cells, each a *legal* exact-five
+    completion for Black (a flank that would only reach an overline isn't
+    a real threat -- see `_has_open_four_span`);
+  - a "three" is "open" (활삼) if some empty cell e exists such that (a)
+    playing Black there would itself be legal (not forbidden for Black in
+    its own right -- an unplayable move can't be a real threat either, see
+    docs/PLAN.md 2026-08-21) and (b) doing so creates an open four.
 Every check below requires the pattern to actually pass through the move
 just played (offset 0) -- not just exist somewhere nearby on the same
 line -- so an unrelated pre-existing shape elsewhere can't produce a false
-positive. This gets the standard textbook cases right, but it does not
-attempt to reproduce every fine-print exemption in the official Renju
-International Federation rulebook (e.g. a three/four that only "counts"
-through a point that's itself already forbidden) -- flagged as a known
-simplification, same spirit as the rest of this project's
-placeholder/approximate rules.
+positive.
 
 Performance note: this is the hot path of Gomoku MCTS (called once per
 empty cell per node expansion, see Board.legal_moves) -- profiling a real
@@ -153,25 +151,29 @@ def _has_open_four_span(values: np.ndarray, a: int, b: int) -> bool:
     return False
 
 
-@numba.njit(cache=True)
-def _is_open_three_through_zero(values: np.ndarray) -> bool:
-    """Some empty cell e exists such that playing there would create an
-    open four spanning both offset 0 (this move) and e (the hypothetical
-    follow-up) -- i.e. this three is one move from an unstoppable four."""
-    for e in range(-_RADIUS + 1, _RADIUS):
-        idx = e + _PAD
-        if values[idx] != 0:
-            continue
-        values[idx] = 1
-        found = _has_open_four_span(values, 0, e)
-        values[idx] = 0
-        if found:
-            return True
-    return False
+@numba.njit(cache=False)  # cache=True + this function's self-recursion segfaulted, see docstring
+def _classify_black_move_code(cells: np.ndarray, size: int, r: int, c: int, mover: int, check_completion_legal: bool) -> int:
+    """The open-three check below (`is_open`) inlines what used to be a
+    separate `_is_open_three_through_zero` function, so that its
+    recursive call back into `_classify_black_move_code` (to check
+    whether a three's completion point is itself legal -- see the module
+    docstring) is *self*-recursion rather than mutual recursion between
+    two @njit functions -- mutual recursion between two separate @njit
+    functions crashed the interpreter outright (segfault) on some real
+    positions. Self-recursion doesn't have that problem, but `cache=True`
+    combined with recursion into the *same* function did (also a
+    segfault, reproduced on this file's exact code -- a numba disk-cache
+    bug with recursive jitted functions, not a logic bug: a pure-Python
+    port of this same algorithm ran correctly and terminated in 3 calls /
+    depth 1 on the position that crashed it, see docs/PLAN.md 2026-08-21).
+    `cache=False` costs a one-time recompile per process (self-play
+    workers each start a fresh process anyway) in exchange for not
+    segfaulting.
 
-
-@numba.njit(cache=True)
-def _classify_black_move_code(cells: np.ndarray, size: int, r: int, c: int, mover: int) -> int:
+    The recursive call always passes `check_completion_legal=False`,
+    which skips this whole block on the way back in, capping the
+    recursion at one level -- matches how real Renju rule references
+    handle it, and keeps this from growing unbounded."""
     any_five = False
     any_overline = False
     four_count = 0
@@ -187,7 +189,29 @@ def _classify_black_move_code(cells: np.ndarray, size: int, r: int, c: int, move
             any_overline = True
         if _is_four_through_zero(values):
             four_count += 1
-        if _is_open_three_through_zero(values):
+
+        is_open = False
+        for e in range(-_RADIUS + 1, _RADIUS):
+            idx = e + _PAD
+            if values[idx] != 0:
+                continue
+            values[idx] = 1
+            found = _has_open_four_span(values, 0, e)
+            values[idx] = 0
+            if not found:
+                continue
+            if check_completion_legal:
+                er = r + dr * e
+                ec = c + dc * e
+                eidx = er * size + ec
+                cells_with_e = cells.copy()
+                cells_with_e[eidx] = mover
+                legal = _classify_black_move_code(cells_with_e, size, er, ec, mover, False) == _LEGAL
+                if not legal:
+                    continue
+            is_open = True
+            break
+        if is_open:
             open_three_count += 1
 
     if any_five:
@@ -205,4 +229,4 @@ def classify_black_move(cells: np.ndarray, size: int, r: int, c: int, mover: int
     """`cells` must already have `mover`'s stone placed at (r, c). Returns
     None if the move is fine, else "overline", "double_four", or
     "double_three"."""
-    return _REASON_BY_CODE.get(_classify_black_move_code(cells, size, r, c, mover))
+    return _REASON_BY_CODE.get(_classify_black_move_code(cells, size, r, c, mover, True))

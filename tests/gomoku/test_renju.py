@@ -133,6 +133,39 @@ def test_three_overline_flank_two_cells_away_is_not_open():
     assert (5, 5) in board.legal_moves()
 
 
+def test_three_whose_completion_point_is_itself_forbidden_is_not_open():
+    # Real position reported by a user (docs/PLAN.md 2026-08-21, move 37 of
+    # a game record): a broken diagonal three only reaches an open four by
+    # playing a specific point, but that point is itself a double-four for
+    # Black -- unplayable -- so the diagonal three isn't a real threat.
+    # Crossed with a genuine open three elsewhere, this must NOT be
+    # double-three even though the naive (non-recursive) check says it is.
+    def coord(letter: str, num: int) -> tuple[int, int]:
+        return 15 - num, ord(letter) - ord("a")
+
+    board = Board(size=15, win_length=5, renju=True)
+    moves = [
+        ("h", 8, BLACK), ("i", 7, WHITE), ("f", 8, BLACK), ("g", 8, WHITE), ("g", 7, BLACK),
+        ("f", 6, WHITE), ("h", 6, BLACK), ("e", 9, WHITE), ("h", 5, BLACK), ("h", 7, WHITE),
+        ("i", 5, BLACK), ("j", 4, WHITE), ("j", 5, BLACK), ("k", 5, WHITE), ("i", 4, BLACK),
+        ("i", 3, WHITE), ("l", 6, BLACK), ("k", 6, WHITE), ("i", 9, BLACK), ("k", 4, WHITE),
+        ("k", 7, BLACK), ("j", 8, WHITE), ("j", 10, BLACK), ("k", 11, WHITE), ("l", 8, BLACK),
+        ("h", 4, WHITE), ("g", 5, BLACK), ("f", 5, WHITE), ("k", 9, BLACK), ("m", 7, WHITE),
+        ("i", 11, BLACK), ("h", 12, WHITE), ("j", 9, BLACK), ("l", 9, WHITE), ("i", 10, BLACK),
+        ("i", 12, WHITE),
+    ]
+    for letter, num, color in moves:
+        set_stones(board, color, [coord(letter, num)])
+
+    r, c = coord("h", 10)
+    assert board.is_forbidden_for_black(r, c) is None
+    assert (r, c) in board.legal_moves()
+
+    rg9, cg9 = coord("g", 9)
+    board.cells[board.index(r, c)] = BLACK
+    assert board.is_forbidden_for_black(rg9, cg9) == "double_four"
+
+
 def test_three_blocked_one_way_still_counts_if_the_other_way_is_open():
     # Same as above but without the (5,0),(5,1) overline setup -- the
     # left extension is now genuinely open, so this three still counts
