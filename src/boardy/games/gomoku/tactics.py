@@ -203,7 +203,12 @@ def tactical_result(
     (mcts.py always does) -- unlike `find_winning_move`, this loop needs
     genuinely *legal* candidates, since an illegal move can't actually be
     played to escape the loss."""
-    if board.move_count < board.win_length - 1:
+    # Counts actual stones on `cells` rather than trusting `move_count` --
+    # same reasoning as board.py's legal_moves() fast path (2026-08-21):
+    # a board built by writing `cells` directly won't necessarily have
+    # `move_count` in sync, and this is a perf shortcut, not something
+    # that should silently change the answer.
+    if int(np.count_nonzero(board.cells)) < board.win_length - 1:
         return None  # can't have win_length-1 stones down yet
 
     winning_moves = find_all_winning_moves(board)
