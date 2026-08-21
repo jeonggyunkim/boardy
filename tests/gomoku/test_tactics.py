@@ -1,5 +1,5 @@
 from boardy.games.gomoku.board import BLACK, WHITE, Board
-from boardy.games.gomoku.tactics import find_winning_move, tactical_value
+from boardy.games.gomoku.tactics import find_all_winning_moves, find_winning_move, tactical_result
 
 
 def _place(board: Board, player: int, cells: list[tuple[int, int]]) -> None:
@@ -23,34 +23,45 @@ def test_find_winning_move_returns_none_without_a_win() -> None:
     assert find_winning_move(board) is None
 
 
-def test_tactical_value_is_plus_one_when_to_move_can_win_now() -> None:
+def test_find_all_winning_moves_returns_every_completion_not_just_one() -> None:
+    # Open four (5,3)-(5,6): both (5,2) and (5,7) independently complete
+    # five -- neither should be dropped in favor of the other.
+    board = Board(renju=False)
+    _place(board, WHITE, [(5, 3), (5, 4), (5, 5), (5, 6)])
+    board.to_move = WHITE
+    assert set(find_all_winning_moves(board)) == {(5, 2), (5, 7)}
+
+
+def test_tactical_result_credits_every_winning_move_when_to_move_can_win_now() -> None:
     board = Board(renju=False)
     _place(board, BLACK, [(5, 3), (5, 4), (5, 5), (5, 6)])
     board.to_move = BLACK
-    assert tactical_value(board) == 1.0
+    value, winning_moves = tactical_result(board)
+    assert value == 1.0
+    assert set(winning_moves) == {(5, 2), (5, 7)}
 
 
-def test_tactical_value_is_minus_one_when_every_move_hands_opponent_a_win() -> None:
+def test_tactical_result_is_minus_one_when_every_move_hands_opponent_a_win() -> None:
     # Black has an open four (5,3)-(5,6): whichever empty cell White fills,
     # Black completes five at the other open end next move.
     board = Board(renju=False)
     _place(board, BLACK, [(5, 3), (5, 4), (5, 5), (5, 6)])
     board.to_move = WHITE
-    assert tactical_value(board) == -1.0
+    assert tactical_result(board) == (-1.0, None)
 
 
-def test_tactical_value_is_none_for_an_ordinary_position() -> None:
+def test_tactical_result_is_none_for_an_ordinary_position() -> None:
     board = Board(renju=False)
     _place(board, BLACK, [(5, 3), (5, 4), (5, 5)])
     board.to_move = WHITE
-    assert tactical_value(board) is None
+    assert tactical_result(board) is None
 
 
-def test_tactical_value_none_before_any_win_is_possible() -> None:
+def test_tactical_result_none_before_any_win_is_possible() -> None:
     board = Board(renju=False)
     _place(board, BLACK, [(5, 3)])
     board.to_move = WHITE
-    assert tactical_value(board) is None
+    assert tactical_result(board) is None
 
 
 def test_tactical_value_respects_renju_exact_five_for_black() -> None:

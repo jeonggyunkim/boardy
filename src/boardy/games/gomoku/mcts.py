@@ -99,16 +99,17 @@ def _expand_with_prediction(node: Node, legal_moves: list[tuple[int, int]], prob
     node.expanded = True
 
 
-def _expand_with_tactical_prior(node: Node, legal_moves: list[tuple[int, int]], winning_move: tuple[int, int] | None) -> None:
-    """Expansion for a leaf `tactical_result` already resolved -- skips the
-    NN call entirely (we already know the exact value; no need to also pay
-    for a policy estimate). `winning_move`, if given, gets the entire prior
-    mass (matches how deterministically good it is); otherwise every legal
-    move is equally bad (the position is already lost regardless of which
-    one gets played) and prior is split uniformly."""
-    uniform = 1.0 / len(legal_moves)
+def _expand_with_tactical_prior(node: Node, legal_moves: list[tuple[int, int]], winning_moves: list[tuple[int, int]] | None) -> None:
+    """Expansion for a leaf `tactical_result` already resolved, no NN call
+    needed. `winning_moves`, if given, split the entire prior mass evenly
+    (all equally correct -- not just the first one found); otherwise the
+    position is lost regardless of which move is played, so prior is
+    split uniformly across every legal move instead."""
+    winning_set = set(winning_moves) if winning_moves else set()
+    fallback = 1.0 / len(legal_moves)
+    win_share = 1.0 / len(winning_set) if winning_set else 0.0
     for r, c in legal_moves:
-        prior = 1.0 if (r, c) == winning_move else (0.0 if winning_move is not None else uniform)
+        prior = win_share if (r, c) in winning_set else (0.0 if winning_set else fallback)
         node.children[f"{r},{c}"] = Node(prior=prior, parent_board=node.board, move=(r, c))
     node.expanded = True
 
@@ -254,17 +255,12 @@ class BatchedMCTS:
                     continue
 
                 legal_moves = leaf.board.legal_moves()
-                # Exact 1-ply lookahead: whenever the outcome is actually
-                # forced, use it directly instead of a network value
-                # estimate that self-play diagnosis showed can be
-                # miscalibrated exactly here -- see tactics.py. Also skips
-                # the NN call altogether for this leaf, not just its value:
-                # if we already know the answer there's nothing left for
-                # the network to usefully add.
+                # Forced win/loss -- use the exact result and skip the NN
+                # call for this leaf entirely (see tactics.py).
                 forced = tactical_result(leaf.board, legal_moves=legal_moves)
                 if forced is not None:
-                    value, winning_move = forced
-                    _expand_with_tactical_prior(leaf, legal_moves, winning_move)
+                    value, winning_moves = forced
+                    _expand_with_tactical_prior(leaf, legal_moves, winning_moves)
                     leaf_values[-1] = value
                     continue
 
