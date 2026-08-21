@@ -34,7 +34,7 @@ import torch
 from .board import Board
 from .encoding import action_to_index, encode_board, legal_action_mask_from_moves
 from .network import PolicyValueNet
-from .tactics import tactical_value
+from .tactics import tactical_result
 
 
 class Node:
@@ -96,6 +96,20 @@ def _expand_with_prediction(node: Node, legal_moves: list[tuple[int, int]], prob
         # Board not built yet -- see Node.ensure_board(). Most of these
         # children will never be selected within this search's budget.
         node.children[action] = Node(prior=float(probs[idx]), parent_board=node.board, move=(r, c))
+    node.expanded = True
+
+
+def _expand_with_tactical_prior(node: Node, legal_moves: list[tuple[int, int]], winning_move: tuple[int, int] | None) -> None:
+    """Expansion for a leaf `tactical_result` already resolved -- skips the
+    NN call entirely (we already know the exact value; no need to also pay
+    for a policy estimate). `winning_move`, if given, gets the entire prior
+    mass (matches how deterministically good it is); otherwise every legal
+    move is equally bad (the position is already lost regardless of which
+    one gets played) and prior is split uniformly."""
+    uniform = 1.0 / len(legal_moves)
+    for r, c in legal_moves:
+        prior = 1.0 if (r, c) == winning_move else (0.0 if winning_move is not None else uniform)
+        node.children[f"{r},{c}"] = Node(prior=prior, parent_board=node.board, move=(r, c))
     node.expanded = True
 
 
@@ -218,6 +232,7 @@ class BatchedMCTS:
             active_idx = [i for i, (root, target) in enumerate(zip(self.roots, targets)) if root.visit_count < target]
 
             paths: list[list[Node]] = []
+            leaf_values: list[float] = []
             pending_idx: list[int] = []  # indices into `paths` that need a real NN eval
             pending_boards: list[Board] = []
             pending_moves: list[list[tuple[int, int]]] = []
@@ -231,29 +246,38 @@ class BatchedMCTS:
                     node.ensure_board()
                     path.append(node)
                 paths.append(path)
+                leaf_values.append(0.0)
 
                 leaf = path[-1]
                 if leaf.is_terminal:
-                    continue  # value comes from the game result, no NN needed
+                    leaf_values[-1] = _terminal_value(leaf.board)  # game result, no NN needed
+                    continue
+
+                legal_moves = leaf.board.legal_moves()
+                # Exact 1-ply lookahead: whenever the outcome is actually
+                # forced, use it directly instead of a network value
+                # estimate that self-play diagnosis showed can be
+                # miscalibrated exactly here -- see tactics.py. Also skips
+                # the NN call altogether for this leaf, not just its value:
+                # if we already know the answer there's nothing left for
+                # the network to usefully add.
+                forced = tactical_result(leaf.board, legal_moves=legal_moves)
+                if forced is not None:
+                    value, winning_move = forced
+                    _expand_with_tactical_prior(leaf, legal_moves, winning_move)
+                    leaf_values[-1] = value
+                    continue
+
                 pending_idx.append(len(paths) - 1)
                 pending_boards.append(leaf.board)
-                pending_moves.append(leaf.board.legal_moves())
-
-            leaf_values = [0.0] * len(paths)
-            for i, path in enumerate(paths):
-                if path[-1].is_terminal:
-                    leaf_values[i] = _terminal_value(path[-1].board)
+                pending_moves.append(legal_moves)
 
             if pending_boards:
                 probs_list, values = _batch_predict(pending_boards, pending_moves, self.net, self.device)
                 for pos, idx in enumerate(pending_idx):
                     leaf = paths[idx][-1]
                     _expand_with_prediction(leaf, pending_moves[pos], probs_list[pos])
-                    # Exact 1-ply lookahead overrides the network's (possibly
-                    # miscalibrated) value estimate whenever the outcome is
-                    # actually forced -- see tactics.py.
-                    forced = tactical_value(pending_boards[pos], legal_moves=pending_moves[pos])
-                    leaf_values[idx] = forced if forced is not None else values[pos]
+                    leaf_values[idx] = values[pos]
 
             for path, leaf_value in zip(paths, leaf_values):
                 value = leaf_value

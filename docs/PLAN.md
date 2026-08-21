@@ -763,8 +763,33 @@ Renju 금지수 판정까지 재수행)해서 self-play가 2.6배 느려짐(5.46
 기존 run1~9 누적 2030 iteration 체크포인트는
 `checkpoints_gomoku_run1-9_archive_20260821/`로 백업(나중에 이번 방식으로
 학습한 체크포인트들과 토너먼트 비교용). 이 변경만 단독 적용해서 처음부터
-500 iteration 재학습 시작 (`--dirichlet-eps 0.5`는 유지, seed=2026,
-`logs/train_20260821_run1_tactics.log`).
+500 iteration 재학습 시작.
+
+**위 "10% 오버헤드" 벤치마크는 오해의 소지가 있었음**: GPU 단일 프로세스
+조건(`device='cuda'`, 배치 인퍼런스)에서 잰 숫자였는데, 실제 학습은
+`--self-play-workers 16`으로 CPU 멀티프로세스 워커 각각이 단일 스레드로
+도는 완전히 다른 조건. 실제 학습 로그로 확인해보니 1~3회차 gen_time이
+858~952s, arena_time이 308~403s로, 이전 run들(같은 설정 기준 gen_time
+550~700s, arena_time 130~175s)보다 self-play는 약 1.4배, arena는 약
+2.3배 느렸음 — 3회차까지 일관되게 나타나 JIT 워밍업 같은 일회성 비용이
+아니라 실제 지속 오버헤드로 확인. 500 iteration 전체를 이 속도로 돌리면
+예전(~4~5일) 대비 ~7일까지 늘어날 것으로 추정되어, 학습을 중단하고 2차
+최적화 진행.
+
+**2차 최적화**: (1) `_find_winning_move_jit`이 보드 전체(size*size칸)를
+스캔하던 걸, 이미 놓인 돌마다 4방향으로 `win_length-1`칸까지만 훑어
+후보를 만드는 방식으로 변경 — 완성 가능한 5는 반드시 기존 돌에서
+`win_length-1` 이내에 있어야 하므로 정확성 손실 없음. (2) 후보 칸마다
+`cells[idx]=player`로 임시로 놓았다 되돌리던 부분을 제거 — `_completes_win`은
+애초에 `(r,c)` 자체의 배열 값을 읽지 않고 그 바깥 이웃만 보므로 이 mutate가
+전부 불필요한 코드였음. (3) `mcts.py`의 leaf backup에서, 이미 강제 결과가
+확정된 리프는 신경망 forward pass 자체를 건너뛰도록 재구성 — 승리 국면은
+찾아낸 필승수에 prior 전량을, 필패 국면은 균등 prior를 줘서 신경망 없이
+바로 자식 노드를 만듦(`_expand_with_tactical_prior`).
+
+결과: 1~2회차 gen_time 626.1s/762.9s, arena_time 150.9s/174.0s로 최적화 전
+대비 거의 절반, 원래(tactics 적용 전) 역사적 기준치와 거의 동일한 수준까지
+회복. 전체 테스트 59개 통과 후 이 상태로 500 iteration 재학습 재시작.
 
 ## 다음 액션
 Deep Sea Crew는 이번 라운드로 트릭 사이 페이싱/통신 타이밍이 실제 게임 상태의

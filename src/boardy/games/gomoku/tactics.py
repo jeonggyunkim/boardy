@@ -56,20 +56,47 @@ def _completes_win(cells: np.ndarray, size: int, r: int, c: int, player: int, wi
 @numba.njit(cache=True)
 def _find_winning_move_jit(cells: np.ndarray, size: int, player: int, win_length: int, exact_only: bool) -> tuple[int, int]:
     """Returns (r, c) of the first empty cell that completes a win for
-    `player`, or (-1, -1) if none does. Mutates `cells` transiently
-    (placed then immediately reverted per candidate) -- same trick as
-    `Board.is_forbidden_for_black`, just inside jitted code so it's cheap
-    to do for every empty cell instead of only the one about to be played."""
-    for idx in range(cells.shape[0]):
-        if cells[idx] != 0:
+    `player`, or (-1, -1) if none does.
+
+    Only checks empty cells within `win_length - 1` of an existing stone
+    (either color -- an anchor just needs to be *a* stone, not necessarily
+    one of `player`'s own) instead of scanning the whole board: any cell
+    that completes a `win_length` run must have an existing same-color
+    stone within `win_length - 1` of it somewhere along that run, so
+    anchoring the scan on every occupied cell can't miss a real candidate.
+    This matters because this function is called up to once per legal
+    move from `tactical_value`'s loss check -- an O(n^2) full-board scan
+    there was measured to cost 2.6x self-play wall time (docs/PLAN.md
+    2026-08-21); this keeps the per-call cost close to the number of
+    stones already on the board, not the number of empty cells.
+
+    Doesn't place `player` at the candidate before calling `_completes_win`
+    (unlike `Board.is_forbidden_for_black`'s temp-place-then-revert
+    pattern) -- `_completes_win` never reads `cells[r*size+c]` itself, only
+    the neighbors outward from it, so the candidate cell's actual array
+    value is irrelevant and mutating it there was pure wasted writes."""
+    n = cells.shape[0]
+    seen = np.zeros(n, dtype=np.bool_)
+    reach = win_length - 1
+    for idx in range(n):
+        if cells[idx] == 0:
             continue
-        r = idx // size
-        c = idx % size
-        cells[idx] = player
-        won = _completes_win(cells, size, r, c, player, win_length, exact_only)
-        cells[idx] = 0
-        if won:
-            return r, c
+        r0 = idx // size
+        c0 = idx % size
+        for d in range(4):
+            dr, dc = _DIRECTIONS[d, 0], _DIRECTIONS[d, 1]
+            for sign in (1, -1):
+                for step in range(1, reach + 1):
+                    rr = r0 + dr * sign * step
+                    cc = c0 + dc * sign * step
+                    if not (0 <= rr < size and 0 <= cc < size):
+                        break
+                    cidx = rr * size + cc
+                    if cells[cidx] != 0 or seen[cidx]:
+                        continue
+                    seen[cidx] = True
+                    if _completes_win(cells, size, rr, cc, player, win_length, exact_only):
+                        return rr, cc
     return -1, -1
 
 
@@ -90,13 +117,18 @@ def find_winning_move(board: Board) -> tuple[int, int] | None:
     return (int(r), int(c)) if r >= 0 else None
 
 
-def tactical_value(board: Board, legal_moves: list[tuple[int, int]] | None = None) -> float | None:
-    """Exact value from `board.to_move`'s perspective if it's forced within
-    the next ply: +1.0 if to_move has an immediate winning move, -1.0 if
-    every legal move hands the opponent an immediate win, else None (not a
-    forced result -- fall back to the network). `legal_moves`, if the
+def tactical_result(
+    board: Board, legal_moves: list[tuple[int, int]] | None = None
+) -> tuple[float, tuple[int, int] | None] | None:
+    """Exact (value, winning_move) from `board.to_move`'s perspective if the
+    outcome is forced within the next ply, else None (not forced -- fall
+    back to the network for both value and policy). `winning_move` is the
+    move to move's immediate win when value is +1.0 (so a caller that also
+    needs a policy prior for this node doesn't have to re-run the win
+    search); it's None when value is -1.0, since which particular move is
+    played no longer matters once every move loses. `legal_moves`, if the
     caller already computed it (mcts.py always has), is reused instead of
-    recomputed -- unlike `find_winning_move` above, this loop needs
+    recomputed -- unlike `find_winning_move`, this loss-check loop needs
     genuinely *legal* candidates (a Renju-forbidden move isn't one the
     current player could actually play to escape the loss)."""
     # A win needs win_length-1 stones of one color already down; cheaper
@@ -104,8 +136,9 @@ def tactical_value(board: Board, legal_moves: list[tuple[int, int]] | None = Non
     if board.move_count < board.win_length - 1:
         return None
 
-    if find_winning_move(board) is not None:
-        return 1.0
+    winning_move = find_winning_move(board)
+    if winning_move is not None:
+        return 1.0, winning_move
 
     legal = legal_moves if legal_moves is not None else board.legal_moves()
     if not legal:
@@ -122,4 +155,12 @@ def tactical_value(board: Board, legal_moves: list[tuple[int, int]] | None = Non
         board.to_move = player
         if not opponent_can_win:
             return None
-    return -1.0
+    return -1.0, None
+
+
+def tactical_value(board: Board, legal_moves: list[tuple[int, int]] | None = None) -> float | None:
+    """Exact value from `board.to_move`'s perspective if it's forced within
+    the next ply -- see `tactical_result`. Convenience wrapper for callers
+    that don't need the winning move."""
+    result = tactical_result(board, legal_moves)
+    return result[0] if result is not None else None
