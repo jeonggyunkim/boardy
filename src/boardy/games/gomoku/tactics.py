@@ -24,24 +24,96 @@ import numpy as np
 
 from .board import BLACK, Board
 
-_DIRECTIONS = np.array([(1, 0), (0, 1), (1, 1), (1, -1)], dtype=np.int64)
+_DIRECTIONS = np.array([(0, 1), (1, 0), (1, 1), (1, -1)], dtype=np.int64)
 
 
 @numba.njit(cache=True)
-def _completes_win(cells: np.ndarray, size: int, r: int, c: int, player: int, win_length: int, exact_only: bool) -> bool:
-    for d in range(4):
-        dr, dc = _DIRECTIONS[d, 0], _DIRECTIONS[d, 1]
-        count = 1
-        for sign in (1, -1):
-            rr, cc = r + dr * sign, c + dc * sign
-            while 0 <= rr < size and 0 <= cc < size and cells[rr * size + cc] == player:
-                count += 1
-                rr += dr * sign
-                cc += dc * sign
-        reached = count == win_length if exact_only else count >= win_length
-        if reached:
-            return True
-    return False
+def _slide_line(
+    cells: np.ndarray,
+    size: int,
+    start_r: int,
+    start_c: int,
+    dr: int,
+    dc: int,
+    line_len: int,
+    player: int,
+    win_length: int,
+    exact_only: bool,
+    seen: np.ndarray,
+    results: np.ndarray,
+    count: int,
+    early_exit: bool,
+) -> tuple[int, bool]:
+    """Slide a length-`win_length` window along one line of the board
+    (`line_len` cells starting at (start_r, start_c), stepping by
+    (dr, dc)), maintaining running player/empty counts incrementally
+    instead of rescanning the window from scratch at each step -- O(1)
+    per step instead of O(win_length), and the whole scan across all
+    lines/directions in `_win_scan_jit` costs O(size^2) regardless of how
+    many stones are on the board (the earlier per-stone-anchored version
+    grew with stone count -- worse late-game, see docs/PLAN.md 2026-08-21).
+
+    A window with exactly `win_length - 1` player stones and 1 empty cell
+    means that empty cell wins. For Black (`exact_only`), also checks the
+    single cell just outside each end of the window isn't `player` --
+    otherwise filling the empty cell would run past `win_length` (an
+    overline, not a win)."""
+    if line_len < win_length:
+        return count, False
+
+    player_count = 0
+    empty_count = 0
+    for i in range(win_length):
+        v = cells[(start_r + dr * i) * size + (start_c + dc * i)]
+        if v == player:
+            player_count += 1
+        elif v == 0:
+            empty_count += 1
+
+    for start in range(0, line_len - win_length + 1):
+        if start > 0:
+            leaving = cells[(start_r + dr * (start - 1)) * size + (start_c + dc * (start - 1))]
+            if leaving == player:
+                player_count -= 1
+            elif leaving == 0:
+                empty_count -= 1
+            entering = cells[(start_r + dr * (start + win_length - 1)) * size + (start_c + dc * (start + win_length - 1))]
+            if entering == player:
+                player_count += 1
+            elif entering == 0:
+                empty_count += 1
+
+        if player_count != win_length - 1 or empty_count != 1:
+            continue
+
+        cand_r, cand_c = -1, -1
+        for i in range(win_length):
+            rr, cc = start_r + dr * (start + i), start_c + dc * (start + i)
+            if cells[rr * size + cc] == 0:
+                cand_r, cand_c = rr, cc
+                break
+
+        if exact_only:
+            overline = False
+            if start - 1 >= 0:
+                br, bc = start_r + dr * (start - 1), start_c + dc * (start - 1)
+                if cells[br * size + bc] == player:
+                    overline = True
+            if not overline and start + win_length < line_len:
+                ar, ac = start_r + dr * (start + win_length), start_c + dc * (start + win_length)
+                if cells[ar * size + ac] == player:
+                    overline = True
+            if overline:
+                continue
+
+        cidx = cand_r * size + cand_c
+        if not seen[cidx]:
+            seen[cidx] = True
+            results[count] = cidx
+            count += 1
+            if early_exit:
+                return count, True
+    return count, False
 
 
 @numba.njit(cache=True)
@@ -49,48 +121,40 @@ def _win_scan_jit(
     cells: np.ndarray, size: int, player: int, win_length: int, exact_only: bool, early_exit: bool
 ) -> tuple[np.ndarray, int]:
     """Flat indices of empty cells that complete a win for `player` (as
-    `results[:count]`); stops at the first one if `early_exit`.
-
-    Only checks empty cells within `win_length - 1` of an existing stone
-    (either color) instead of the whole board: a `win_length` run through
-    a candidate must have an existing same-color stone that close to it,
-    so anchoring the scan on every occupied cell can't miss one, and stays
-    proportional to stones-on-board rather than empty-cells (this function
-    is called up to once per legal move from `tactical_result`'s loss
-    check, so the whole-board version was O(n^2) -- see docs/PLAN.md
-    2026-08-21).
-
-    Doesn't place `player` at the candidate before calling `_completes_win`
-    -- that function never reads `cells[r*size+c]` itself, only the
-    neighbors outward from it, so the candidate's own array value doesn't
-    matter and mutating it there was wasted writes."""
+    `results[:count]`); stops at the first one if `early_exit`. Sweeps
+    every line of the board once per direction (horizontal, vertical, the
+    2 diagonals) via `_slide_line` -- see that function's docstring."""
     n = cells.shape[0]
     seen = np.zeros(n, dtype=np.bool_)
     results = np.full(n, -1, dtype=np.int64)
     count = 0
-    reach = win_length - 1
-    for idx in range(n):
-        if cells[idx] == 0:
-            continue
-        r0 = idx // size
-        c0 = idx % size
-        for d in range(4):
-            dr, dc = _DIRECTIONS[d, 0], _DIRECTIONS[d, 1]
-            for sign in (1, -1):
-                for step in range(1, reach + 1):
-                    rr = r0 + dr * sign * step
-                    cc = c0 + dc * sign * step
-                    if not (0 <= rr < size and 0 <= cc < size):
-                        break
-                    cidx = rr * size + cc
-                    if cells[cidx] != 0 or seen[cidx]:
-                        continue
-                    seen[cidx] = True
-                    if _completes_win(cells, size, rr, cc, player, win_length, exact_only):
-                        results[count] = cidx
-                        count += 1
-                        if early_exit:
-                            return results, count
+
+    for r in range(size):  # horizontal: one line per row
+        count, done = _slide_line(cells, size, r, 0, 0, 1, size, player, win_length, exact_only, seen, results, count, early_exit)
+        if done:
+            return results, count
+    for c in range(size):  # vertical: one line per column
+        count, done = _slide_line(cells, size, 0, c, 1, 0, size, player, win_length, exact_only, seen, results, count, early_exit)
+        if done:
+            return results, count
+    for r in range(size):  # diagonal \: lines starting down the left column...
+        count, done = _slide_line(cells, size, r, 0, 1, 1, size - r, player, win_length, exact_only, seen, results, count, early_exit)
+        if done:
+            return results, count
+    for c in range(1, size):  # ...plus the rest starting along the top row
+        count, done = _slide_line(cells, size, 0, c, 1, 1, size - c, player, win_length, exact_only, seen, results, count, early_exit)
+        if done:
+            return results, count
+    for r in range(size):  # diagonal /: lines starting down the right column...
+        count, done = _slide_line(
+            cells, size, r, size - 1, 1, -1, size - r, player, win_length, exact_only, seen, results, count, early_exit
+        )
+        if done:
+            return results, count
+    for c in range(size - 1):  # ...plus the rest starting along the top row
+        count, done = _slide_line(cells, size, 0, c, 1, -1, c + 1, player, win_length, exact_only, seen, results, count, early_exit)
+        if done:
+            return results, count
     return results, count
 
 
