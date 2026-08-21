@@ -87,3 +87,19 @@ def test_to_move_alternates():
     assert b.to_move == WHITE
     b.play(0, 1)
     assert b.to_move == BLACK
+
+
+def test_legal_moves_fast_path_matches_full_check_with_few_black_stones():
+    # legal_moves() skips per-cell Renju classification when Black has
+    # fewer than 4 stones down (no forbidden pattern needs less), but
+    # that must still agree with what classification would've said --
+    # this checks it does for 0..3 Black stones, including a case built
+    # by writing `cells` directly (move_count not synced via play()) to
+    # make sure the fast path counts actual stones, not move_count.
+    b = Board(size=9, win_length=5, renju=True)
+    for r, c in [(4, 4), (4, 6), (2, 4)]:
+        b.cells[b.index(r, c)] = BLACK
+    b.to_move = BLACK
+    assert b.move_count == 0  # deliberately not kept in sync
+    all_empty = {(r, c) for r in range(9) for c in range(9) if b.get(r, c) == 0}
+    assert set(b.legal_moves()) == all_empty

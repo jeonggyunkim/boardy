@@ -73,7 +73,23 @@ class Board:
         if self.winner is not None:
             return []
         empties = [(i // self.size, i % self.size) for i, v in enumerate(self.cells) if v == 0]
-        if self.renju and self.to_move == BLACK:
+        # Every forbidden pattern needs at least 2 of Black's own stones
+        # already down per line direction it spans (a "three" -- even a
+        # broken one -- is 2 existing stones + this move; double-three
+        # needs that in 2 distinct directions, and a stone can't count
+        # towards both since each occupies one specific relative
+        # position), so double-three's 4 is the lowest bar of the three
+        # patterns (double-four needs 6, overline needs 5) -- below 4
+        # Black stones on the board, no empty cell can possibly be
+        # forbidden, so skip the per-cell classification entirely (this
+        # file's hot path, see renju.py's docstring) instead of paying
+        # for it 225 times over on an empty-ish board just to always get
+        # None back. Counts actual stones on `cells` rather than trusting
+        # `move_count` -- callers that build a position by writing
+        # `cells` directly (tests, position-analysis tools) don't always
+        # keep `move_count` in sync, and getting this wrong would mean
+        # silently skipping real forbidden-move checks.
+        if self.renju and self.to_move == BLACK and int(np.count_nonzero(self.cells == BLACK)) >= 4:
             return [(r, c) for r, c in empties if self.is_forbidden_for_black(r, c) is None]
         return empties
 
